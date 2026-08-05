@@ -33,7 +33,11 @@ public sealed class Company
     public int? BusinessAnchorSecond { get; set; }
     public DateTimeOffset? BusinessClockUpdatedAt { get; set; }
 
+    /// <summary>Bumps whenever teams / membership / leaders change (SignalR org sync).</summary>
+    public long OrgStructureVersion { get; set; }
+
     public List<UserAccount> Users { get; set; } = [];
+    public List<Team> Teams { get; set; } = [];
 }
 
 public sealed class UninstallTicket
@@ -68,7 +72,24 @@ public sealed class UserAccount
     public bool AccessTotpEnabled { get; set; }
     public DateTimeOffset? AccessTotpEnrolledAt { get; set; }
 
+    /// <summary>Staff designated as Policeman (may hold authority packages company-wide).</summary>
+    public bool IsPoliceman { get; set; }
+    public DateTimeOffset? PolicemanUpdatedAt { get; set; }
+    public long AuthorityVersion { get; set; }
+
     public Company Company { get; set; } = null!;
+    public List<PolicemanAuthorityGrant> AuthorityGrants { get; set; } = [];
+}
+
+/// <summary>One granted authority package for a policeman (or future grantee).</summary>
+public sealed class PolicemanAuthorityGrant
+{
+    public Guid StaffUserId { get; set; }
+    public required string PackageId { get; set; }
+    public DateTimeOffset GrantedAt { get; set; } = DateTimeOffset.UtcNow;
+    public Guid? GrantedByUserId { get; set; }
+
+    public UserAccount StaffUser { get; set; } = null!;
 }
 
 public sealed class UsbSessionTicket
@@ -131,4 +152,32 @@ public sealed class AgentSequenceState
     public long GapCount { get; set; }
 
     public UserAccount User { get; set; } = null!;
+}
+
+/// <summary>
+/// One Team Leader + any number of members. Staff in at most one team;
+/// a leader leads exactly one team and is not a member of any team.
+/// </summary>
+public sealed class Team
+{
+    public Guid Id { get; set; }
+    public Guid CompanyId { get; set; }
+    public required string Name { get; set; }
+    public Guid LeaderUserId { get; set; }
+    public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
+    public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
+
+    public Company Company { get; set; } = null!;
+    public UserAccount Leader { get; set; } = null!;
+    public List<TeamMember> Members { get; set; } = [];
+}
+
+public sealed class TeamMember
+{
+    public Guid TeamId { get; set; }
+    public Guid StaffUserId { get; set; }
+    public DateTimeOffset JoinedAt { get; set; } = DateTimeOffset.UtcNow;
+
+    public Team Team { get; set; } = null!;
+    public UserAccount StaffUser { get; set; } = null!;
 }

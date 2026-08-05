@@ -20,6 +20,8 @@ Windows agent + ASP.NET Core API. This repository currently ships the **Auth Eng
 - Phase-4 tracking: [`docs/PHASE4_TRACKING.md`](docs/PHASE4_TRACKING.md)
 - Phase-5 business time: [`docs/PHASE5_BUSINESS_TIME.md`](docs/PHASE5_BUSINESS_TIME.md)
 - Phase-6 USB: [`docs/PHASE6_USB.md`](docs/PHASE6_USB.md)
+- Phase-7 teams: [`docs/PHASE7_TEAMS.md`](docs/PHASE7_TEAMS.md)
+- Phase-8 authorities: [`docs/PHASE8_AUTHORITIES.md`](docs/PHASE8_AUTHORITIES.md)
 
 ## Auth model
 
@@ -90,4 +92,10 @@ The Windows agent must use the same `CompanyToken__Key` (base64 32-byte AES key)
 - `GET /api/business-time/me` (Bearer)
 - `POST /api/business-time/declare` (Admin Bearer) — absolute company sync clock
 - `GET /api/business-time/now` (Bearer)
+- `GET /api/org/structure` (Admin Bearer) — full teams tree
+- `GET /api/org/me` (Bearer) — my team placement
+- `POST/PUT/DELETE /api/teams…` (Admin Bearer) — flexible team structure
+- `GET /api/tracking/staff` (Admin or policeman with a view/approval package — company-wide)
+- `GET /api/tracking/events?staffUserId=` (filtered by authority packages)
+- `GET/PUT/DELETE /api/police…` — policemen + authority packages
 - `GET /health`

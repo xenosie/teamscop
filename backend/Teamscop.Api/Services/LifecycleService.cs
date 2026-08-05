@@ -46,7 +46,7 @@ public interface ILifecycleService
     Task HeartbeatAsync(Guid userId, CancellationToken ct);
 }
 
-public sealed class LifecycleService(AppDbContext db) : ILifecycleService
+public sealed class LifecycleService(AppDbContext db, IAuthorityService authorities) : ILifecycleService
 {
     private static readonly TimeSpan TicketLifetime = TimeSpan.FromMinutes(10);
     private static readonly TimeSpan UsbTicketLifetime = TimeSpan.FromMinutes(5);
@@ -69,9 +69,9 @@ public sealed class LifecycleService(AppDbContext db) : ILifecycleService
 
     public async Task<IReadOnlyList<TotpStatusDto>> ListStaffTotpAsync(Guid adminUserId, CancellationToken ct)
     {
-        var admin = await RequireAdminAsync(adminUserId, ct);
+        var actor = await RequireTotpGeneratorAsync(adminUserId, ct);
         return await db.Users.AsNoTracking()
-            .Where(u => u.CompanyId == admin.CompanyId && u.Role == UserRole.Staff)
+            .Where(u => u.CompanyId == actor.CompanyId && u.Role == UserRole.Staff)
             .OrderBy(u => u.Username)
             .Select(u => new TotpStatusDto(u.Id, u.Username, u.AccessTotpEnabled, u.AccessTotpEnrolledAt))
             .ToListAsync(ct);
@@ -79,15 +79,15 @@ public sealed class LifecycleService(AppDbContext db) : ILifecycleService
 
     public async Task<TotpStatusDto> GetTotpStatusAsync(Guid adminUserId, Guid staffUserId, CancellationToken ct)
     {
-        var admin = await RequireAdminAsync(adminUserId, ct);
-        var staff = await RequireCompanyStaffAsync(admin.CompanyId, staffUserId, ct);
+        var actor = await RequireTotpGeneratorAsync(adminUserId, ct);
+        var staff = await RequireCompanyStaffAsync(actor.CompanyId, staffUserId, ct);
         return new TotpStatusDto(staff.Id, staff.Username, staff.AccessTotpEnabled, staff.AccessTotpEnrolledAt);
     }
 
     public async Task<TotpCodeDto> GetTotpCodeAsync(Guid adminUserId, Guid staffUserId, CancellationToken ct)
     {
-        var admin = await RequireAdminAsync(adminUserId, ct);
-        var staff = await RequireCompanyStaffAsync(admin.CompanyId, staffUserId, ct);
+        var actor = await RequireTotpGeneratorAsync(adminUserId, ct);
+        var staff = await RequireCompanyStaffAsync(actor.CompanyId, staffUserId, ct);
         if (!staff.AccessTotpEnabled || string.IsNullOrWhiteSpace(staff.AccessTotpSecret))
         {
             throw new InvalidOperationException("Staff TOTP is not enrolled. Enroll first.");
@@ -230,10 +230,23 @@ public sealed class LifecycleService(AppDbContext db) : ILifecycleService
             ?? throw new UnauthorizedAccessException("User not found.");
         if (admin.Role != UserRole.Admin)
         {
-            throw new UnauthorizedAccessException("Only admins can manage staff TOTP.");
+            throw new UnauthorizedAccessException("Only admins can enroll staff TOTP.");
         }
 
         return admin;
+    }
+
+    private async Task<UserAccount> RequireTotpGeneratorAsync(Guid userId, CancellationToken ct)
+    {
+        var user = await db.Users.Include(u => u.Company)
+            .FirstOrDefaultAsync(u => u.Id == userId, ct)
+            ?? throw new UnauthorizedAccessException("User not found.");
+        if (!await authorities.CanGenerateTotpAsync(userId, ct))
+        {
+            throw new UnauthorizedAccessException("Missing authority package: usb_approval or uninstall_approval");
+        }
+
+        return user;
     }
 
     private async Task<UserAccount> RequireCompanyStaffAsync(Guid companyId, Guid staffUserId, CancellationToken ct)

@@ -11,6 +11,9 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
     public DbSet<AgentEvent> AgentEvents => Set<AgentEvent>();
     public DbSet<StaffTrackingConfigEntity> StaffTrackingConfigs => Set<StaffTrackingConfigEntity>();
     public DbSet<AgentSequenceState> AgentSequenceStates => Set<AgentSequenceState>();
+    public DbSet<Team> Teams => Set<Team>();
+    public DbSet<TeamMember> TeamMembers => Set<TeamMember>();
+    public DbSet<PolicemanAuthorityGrant> PolicemanAuthorityGrants => Set<PolicemanAuthorityGrant>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -28,6 +31,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             entity.Property(x => x.BusinessTimeZoneId).HasMaxLength(100).HasDefaultValue("UTC");
             entity.Property(x => x.BusinessClockVersion).HasDefaultValue(0L);
             entity.Property(x => x.BusinessClockSynchronized).HasDefaultValue(false);
+            entity.Property(x => x.OrgStructureVersion).HasDefaultValue(0L);
         });
 
         modelBuilder.Entity<UserAccount>(entity =>
@@ -43,7 +47,10 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             entity.Property(x => x.CreatedAt).IsRequired();
             entity.Property(x => x.AccessTotpSecret).HasMaxLength(128);
             entity.Property(x => x.AccessTotpEnabled).HasDefaultValue(false);
+            entity.Property(x => x.IsPoliceman).HasDefaultValue(false);
+            entity.Property(x => x.AuthorityVersion).HasDefaultValue(0L);
             entity.HasIndex(x => x.CompanyId);
+            entity.HasIndex(x => new { x.CompanyId, x.IsPoliceman });
             entity.HasOne(x => x.Company)
                 .WithMany(x => x.Users)
                 .HasForeignKey(x => x.CompanyId)
@@ -129,6 +136,51 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             entity.HasOne(x => x.User)
                 .WithOne()
                 .HasForeignKey<AgentSequenceState>(x => x.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<Team>(entity =>
+        {
+            entity.ToTable("teams");
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.Name).HasMaxLength(200).IsRequired();
+            entity.HasIndex(x => x.CompanyId);
+            entity.HasIndex(x => x.LeaderUserId).IsUnique();
+            entity.HasIndex(x => new { x.CompanyId, x.Name }).IsUnique();
+            entity.HasOne(x => x.Company)
+                .WithMany(c => c.Teams)
+                .HasForeignKey(x => x.CompanyId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(x => x.Leader)
+                .WithMany()
+                .HasForeignKey(x => x.LeaderUserId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<TeamMember>(entity =>
+        {
+            entity.ToTable("team_members");
+            entity.HasKey(x => new { x.TeamId, x.StaffUserId });
+            entity.HasIndex(x => x.StaffUserId).IsUnique();
+            entity.HasOne(x => x.Team)
+                .WithMany(t => t.Members)
+                .HasForeignKey(x => x.TeamId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(x => x.StaffUser)
+                .WithMany()
+                .HasForeignKey(x => x.StaffUserId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<PolicemanAuthorityGrant>(entity =>
+        {
+            entity.ToTable("policeman_authority_grants");
+            entity.HasKey(x => new { x.StaffUserId, x.PackageId });
+            entity.Property(x => x.PackageId).HasMaxLength(64).IsRequired();
+            entity.HasIndex(x => x.PackageId);
+            entity.HasOne(x => x.StaffUser)
+                .WithMany(u => u.AuthorityGrants)
+                .HasForeignKey(x => x.StaffUserId)
                 .OnDelete(DeleteBehavior.Cascade);
         });
     }

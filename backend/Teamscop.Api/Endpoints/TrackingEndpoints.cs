@@ -11,7 +11,10 @@ public static class TrackingEndpoints
     {
         var group = app.MapGroup("/api/tracking").WithTags("Tracking");
         group.MapGet("/config/me", GetMyConfigAsync).RequireAuthorization();
+        group.MapGet("/config/{staffUserId:guid}", GetStaffConfigAsync).RequireAuthorization();
         group.MapPut("/config/{staffUserId:guid}", UpsertConfigAsync).RequireAuthorization();
+        group.MapGet("/staff", ListVisibleStaffAsync).RequireAuthorization();
+        group.MapGet("/events", QueryEventsAsync).RequireAuthorization();
         return group;
     }
 
@@ -33,6 +36,28 @@ public static class TrackingEndpoints
         catch (UnauthorizedAccessException)
         {
             return Results.Unauthorized();
+        }
+    }
+
+    private static async Task<IResult> GetStaffConfigAsync(
+        Guid staffUserId,
+        ClaimsPrincipal principal,
+        ITrackingQueryService query,
+        CancellationToken ct)
+    {
+        var viewerId = GetUserId(principal);
+        if (viewerId is null)
+        {
+            return Results.Unauthorized();
+        }
+
+        try
+        {
+            return Results.Ok(await query.GetConfigIfAllowedAsync(viewerId.Value, staffUserId, ct));
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return Results.Json(new { error = ex.Message }, statusCode: StatusCodes.Status403Forbidden);
         }
     }
 
@@ -61,6 +86,55 @@ public static class TrackingEndpoints
         catch (InvalidOperationException ex)
         {
             return Results.BadRequest(new { error = ex.Message });
+        }
+    }
+
+    private static async Task<IResult> ListVisibleStaffAsync(
+        ClaimsPrincipal principal,
+        ITeamService teams,
+        CancellationToken ct)
+    {
+        var viewerId = GetUserId(principal);
+        if (viewerId is null)
+        {
+            return Results.Unauthorized();
+        }
+
+        try
+        {
+            return Results.Ok(await teams.ListVisibleStaffAsync(viewerId.Value, ct));
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return Results.Unauthorized();
+        }
+    }
+
+    private static async Task<IResult> QueryEventsAsync(
+        [FromQuery] Guid staffUserId,
+        [FromQuery] DateTimeOffset? from,
+        [FromQuery] DateTimeOffset? to,
+        [FromQuery] string? eventType,
+        [FromQuery] int? take,
+        ClaimsPrincipal principal,
+        ITrackingQueryService query,
+        CancellationToken ct)
+    {
+        var viewerId = GetUserId(principal);
+        if (viewerId is null)
+        {
+            return Results.Unauthorized();
+        }
+
+        try
+        {
+            var events = await query.QueryEventsAsync(
+                viewerId.Value, staffUserId, from, to, eventType, take ?? 100, ct);
+            return Results.Ok(events);
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return Results.Json(new { error = ex.Message }, statusCode: StatusCodes.Status403Forbidden);
         }
     }
 

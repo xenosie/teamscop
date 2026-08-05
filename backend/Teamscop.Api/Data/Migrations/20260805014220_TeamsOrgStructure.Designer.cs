@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using Teamscop.Api.Data;
@@ -11,9 +12,11 @@ using Teamscop.Api.Data;
 namespace Teamscop.Api.Data.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260805014220_TeamsOrgStructure")]
+    partial class TeamsOrgStructure
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -195,28 +198,6 @@ namespace Teamscop.Api.Data.Migrations
                     b.HasKey("Id");
 
                     b.ToTable("companies", (string)null);
-                });
-
-            modelBuilder.Entity("Teamscop.Api.Data.PolicemanAuthorityGrant", b =>
-                {
-                    b.Property<Guid>("StaffUserId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("PackageId")
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.Property<DateTimeOffset>("GrantedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<Guid?>("GrantedByUserId")
-                        .HasColumnType("uuid");
-
-                    b.HasKey("StaffUserId", "PackageId");
-
-                    b.HasIndex("PackageId");
-
-                    b.ToTable("policeman_authority_grants", (string)null);
                 });
 
             modelBuilder.Entity("Teamscop.Api.Data.StaffTrackingConfigEntity", b =>
@@ -408,11 +389,6 @@ namespace Teamscop.Api.Data.Migrations
                         .HasMaxLength(128)
                         .HasColumnType("character varying(128)");
 
-                    b.Property<long>("AuthorityVersion")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("bigint")
-                        .HasDefaultValue(0L);
-
                     b.Property<string>("AvatarUrl")
                         .HasMaxLength(500)
                         .HasColumnType("character varying(500)");
@@ -428,11 +404,6 @@ namespace Teamscop.Api.Data.Migrations
                         .HasMaxLength(128)
                         .HasColumnType("character varying(128)");
 
-                    b.Property<bool>("IsPoliceman")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("boolean")
-                        .HasDefaultValue(false);
-
                     b.Property<DateTimeOffset?>("LastHeartbeatAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -446,9 +417,6 @@ namespace Teamscop.Api.Data.Migrations
                         .IsRequired()
                         .HasMaxLength(500)
                         .HasColumnType("character varying(500)");
-
-                    b.Property<DateTimeOffset?>("PolicemanUpdatedAt")
-                        .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("Role")
                         .IsRequired()
@@ -466,8 +434,6 @@ namespace Teamscop.Api.Data.Migrations
 
                     b.HasIndex("DeviceKey")
                         .IsUnique();
-
-                    b.HasIndex("CompanyId", "IsPoliceman");
 
                     b.ToTable("users", (string)null);
                 });
@@ -500,17 +466,6 @@ namespace Teamscop.Api.Data.Migrations
                         .IsRequired();
 
                     b.Navigation("User");
-                });
-
-            modelBuilder.Entity("Teamscop.Api.Data.PolicemanAuthorityGrant", b =>
-                {
-                    b.HasOne("Teamscop.Api.Data.UserAccount", "StaffUser")
-                        .WithMany("AuthorityGrants")
-                        .HasForeignKey("StaffUserId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("StaffUser");
                 });
 
             modelBuilder.Entity("Teamscop.Api.Data.StaffTrackingConfigEntity", b =>
@@ -621,11 +576,6 @@ namespace Teamscop.Api.Data.Migrations
             modelBuilder.Entity("Teamscop.Api.Data.Team", b =>
                 {
                     b.Navigation("Members");
-                });
-
-            modelBuilder.Entity("Teamscop.Api.Data.UserAccount", b =>
-                {
-                    b.Navigation("AuthorityGrants");
                 });
 #pragma warning restore 612, 618
         }

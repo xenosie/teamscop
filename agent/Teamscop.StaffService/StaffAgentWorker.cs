@@ -69,6 +69,24 @@ public sealed class StaffAgentWorker(
                             tracking.ApplyBusinessClock(biz);
                         }
 
+                        var placement = await configClient.PullOrgPlacementAsync(http, state.AccessToken, stoppingToken);
+                        if (placement is not null)
+                        {
+                            logger.LogInformation(
+                                "Org placement: {Placement} team={Team} v{Version} leader={IsLeader}",
+                                placement.Placement, placement.TeamName ?? "-", placement.StructureVersion, placement.IsTeamLeader);
+                        }
+
+                        var authorities = await configClient.PullAuthoritiesAsync(http, state.AccessToken, stoppingToken);
+                        if (authorities is not null)
+                        {
+                            logger.LogInformation(
+                                "Authorities v{Version} policeman={IsPolice} packages=[{Packages}]",
+                                authorities.AuthorityVersion,
+                                authorities.IsPoliceman,
+                                string.Join(',', authorities.Packages));
+                        }
+
                         configClient.ConfigChanged += cfg =>
                         {
                             tracking.ApplyConfig(cfg);
@@ -82,6 +100,20 @@ public sealed class StaffAgentWorker(
                                 cfg.ClockVersion, cfg.TimeZoneId,
                                 cfg.AnchorYear, cfg.AnchorMonth, cfg.AnchorDay,
                                 cfg.AnchorHour, cfg.AnchorMinute, cfg.AnchorSecond);
+                        };
+                        configClient.OrgStructureChanged += org =>
+                        {
+                            logger.LogInformation(
+                                "Org structure updated immediately v{Version} teams={Teams} unassigned={Unassigned}",
+                                org.StructureVersion, org.Teams.Count, org.UnassignedStaff.Count);
+                        };
+                        configClient.AuthoritiesChanged += auth =>
+                        {
+                            logger.LogInformation(
+                                "Authorities updated immediately v{Version} policeman={IsPolice} packages=[{Packages}]",
+                                auth.AuthorityVersion,
+                                auth.IsPoliceman,
+                                string.Join(',', auth.Packages));
                         };
                         configStarted = true;
                     }
