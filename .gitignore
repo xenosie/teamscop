@@ -1,0 +1,10 @@
+**/bin/
+**/obj/
+**/data/
+*.user
+*.swp
+.vs/
+.idea/
+appsettings.*.local.json
+.env
+*.pfx

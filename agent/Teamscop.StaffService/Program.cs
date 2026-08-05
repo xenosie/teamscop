@@ -1,0 +1,73 @@
+using Teamscop.Engine.Auth;
+using Teamscop.Engine.Lifecycle;
+using Teamscop.Engine.Sync;
+using Teamscop.Engine.Tracking;
+using Teamscop.StaffService;
+
+var builder = Host.CreateApplicationBuilder(args);
+
+builder.Services.AddWindowsService(options =>
+{
+    options.ServiceName = ServiceInstallerHints.ServiceName;
+});
+builder.Services.AddSystemd();
+
+var apiBase = builder.Configuration["Agent:ApiBaseUrl"] ?? "https://teamscop.com";
+var healthUrl = apiBase.TrimEnd('/') + "/health";
+var companyKey = builder.Configuration["Agent:CompanyTokenKey"] ?? CompanyTokenKey.Base64;
+
+builder.Services.AddSingleton(_ => new LocalAgentStore(AgentRole.Staff));
+builder.Services.AddSingleton(_ => new LifecycleApiClient(apiBase));
+builder.Services.AddSingleton<IConnectivityProbe>(_ =>
+{
+    var http = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
+    return new ConnectivityProbe(http, healthUrl);
+});
+builder.Services.AddSingleton<IOutboxQueue>(sp =>
+{
+    var store = sp.GetRequiredService<LocalAgentStore>();
+    var root = Path.GetDirectoryName(store.StatePath)
+               ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "Teamscop", "Agent");
+    return new FileOutboxQueue(root);
+});
+builder.Services.AddSingleton<ISyncApiClient>(_ => new SyncApiClient(apiBase));
+builder.Services.AddSingleton(sp =>
+{
+    var options = new SyncEngineOptions
+    {
+        BatchSize = builder.Configuration.GetValue("Agent:BatchSize", 50)
+    };
+    return new SyncEngine(
+        sp.GetRequiredService<IConnectivityProbe>(),
+        sp.GetRequiredService<IOutboxQueue>(),
+        sp.GetRequiredService<ISyncApiClient>(),
+        options);
+});
+
+builder.Services.AddSingleton(sp =>
+{
+    var store = sp.GetRequiredService<LocalAgentStore>();
+    var root = Path.GetDirectoryName(store.StatePath)
+               ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "Teamscop", "Agent");
+    var state = store.Load();
+    var deviceKey = state.DeviceKey ?? new DeviceKeyProvider().GetDeviceKey();
+    var master = SecureVault.DeriveMasterKey(deviceKey, companyKey);
+    return new SecureVault(root, master);
+});
+builder.Services.AddSingleton(sp =>
+{
+    var store = sp.GetRequiredService<LocalAgentStore>();
+    var root = Path.GetDirectoryName(store.StatePath)
+               ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "Teamscop", "Agent");
+    return new ChromeHistoryWatcher(root);
+});
+builder.Services.AddSingleton<ConfigRealtimeClient>(_ => new ConfigRealtimeClient(apiBase));
+builder.Services.AddSingleton(sp => new TrackingCoordinator(
+    sp.GetRequiredService<SecureVault>(),
+    sp.GetRequiredService<IOutboxQueue>(),
+    sp.GetRequiredService<ChromeHistoryWatcher>()));
+
+builder.Services.AddHostedService<StaffAgentWorker>();
+
+var host = builder.Build();
+host.Run();

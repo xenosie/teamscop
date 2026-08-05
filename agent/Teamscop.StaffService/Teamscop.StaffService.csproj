@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk.Worker">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UserSecretsId>dotnet-Teamscop.StaffService-c29e64db-cd8d-4d7f-9c7c-61f97d0e883d</UserSecretsId>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" Version="8.0.11" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="8.0.1" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.Systemd" Version="8.0.1" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="8.0.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Teamscop.Engine.Auth\Teamscop.Engine.Auth.csproj" />
+    <ProjectReference Include="..\Teamscop.Engine.Lifecycle\Teamscop.Engine.Lifecycle.csproj" />
+    <ProjectReference Include="..\Teamscop.Engine.Sync\Teamscop.Engine.Sync.csproj" />
+    <ProjectReference Include="..\Teamscop.Engine.Tracking\Teamscop.Engine.Tracking.csproj" />
+  </ItemGroup>
+</Project>

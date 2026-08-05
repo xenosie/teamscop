@@ -1,0 +1,85 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "backend", "backend", "{7ECF2381-69AB-4949-8D1E-80B55EB5917E}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Teamscop.Api", "backend\Teamscop.Api\Teamscop.Api.csproj", "{F3EDB517-4B5B-4B5D-8B7D-4082ADB1371E}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Teamscop.Api.Tests", "backend\Teamscop.Api.Tests\Teamscop.Api.Tests.csproj", "{338D73E9-09FC-4CAD-925B-0FB1BD32E247}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "agent", "agent", "{37F4D0CF-615C-4F52-AFC4-1E1C1A5B1A64}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Teamscop.Engine.Auth", "agent\Teamscop.Engine.Auth\Teamscop.Engine.Auth.csproj", "{68861ED3-D49D-436B-A2FA-C09D653228E3}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Teamscop.Engine.Lifecycle", "agent\Teamscop.Engine.Lifecycle\Teamscop.Engine.Lifecycle.csproj", "{9A6F9926-192E-45E0-8FAE-0FE39EDE7AFE}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Teamscop.StaffService", "agent\Teamscop.StaffService\Teamscop.StaffService.csproj", "{92514A19-F608-4609-B907-9EA65A7770B5}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Teamscop.AdminHost", "agent\Teamscop.AdminHost\Teamscop.AdminHost.csproj", "{8470D167-8703-45F9-9EB8-28865F7DBB96}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Teamscop.UninstallGuard", "agent\Teamscop.UninstallGuard\Teamscop.UninstallGuard.csproj", "{AF2ADC43-DFDA-44B4-A588-AA048DEC711B}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Teamscop.Engine.Sync", "agent\Teamscop.Engine.Sync\Teamscop.Engine.Sync.csproj", "{01AAF4B1-2FB5-4B23-BA64-0ADB323335E2}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Teamscop.Engine.Tracking", "agent\Teamscop.Engine.Tracking\Teamscop.Engine.Tracking.csproj", "{8A6A23B7-B160-4BF1-B256-42D0471F72FE}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{F3EDB517-4B5B-4B5D-8B7D-4082ADB1371E}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{F3EDB517-4B5B-4B5D-8B7D-4082ADB1371E}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{F3EDB517-4B5B-4B5D-8B7D-4082ADB1371E}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{F3EDB517-4B5B-4B5D-8B7D-4082ADB1371E}.Release|Any CPU.Build.0 = Release|Any CPU
+		{338D73E9-09FC-4CAD-925B-0FB1BD32E247}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{338D73E9-09FC-4CAD-925B-0FB1BD32E247}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{338D73E9-09FC-4CAD-925B-0FB1BD32E247}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{338D73E9-09FC-4CAD-925B-0FB1BD32E247}.Release|Any CPU.Build.0 = Release|Any CPU
+		{68861ED3-D49D-436B-A2FA-C09D653228E3}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{68861ED3-D49D-436B-A2FA-C09D653228E3}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{68861ED3-D49D-436B-A2FA-C09D653228E3}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{68861ED3-D49D-436B-A2FA-C09D653228E3}.Release|Any CPU.Build.0 = Release|Any CPU
+		{9A6F9926-192E-45E0-8FAE-0FE39EDE7AFE}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{9A6F9926-192E-45E0-8FAE-0FE39EDE7AFE}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{9A6F9926-192E-45E0-8FAE-0FE39EDE7AFE}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{9A6F9926-192E-45E0-8FAE-0FE39EDE7AFE}.Release|Any CPU.Build.0 = Release|Any CPU
+		{92514A19-F608-4609-B907-9EA65A7770B5}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{92514A19-F608-4609-B907-9EA65A7770B5}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{92514A19-F608-4609-B907-9EA65A7770B5}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{92514A19-F608-4609-B907-9EA65A7770B5}.Release|Any CPU.Build.0 = Release|Any CPU
+		{8470D167-8703-45F9-9EB8-28865F7DBB96}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{8470D167-8703-45F9-9EB8-28865F7DBB96}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{8470D167-8703-45F9-9EB8-28865F7DBB96}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{8470D167-8703-45F9-9EB8-28865F7DBB96}.Release|Any CPU.Build.0 = Release|Any CPU
+		{AF2ADC43-DFDA-44B4-A588-AA048DEC711B}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{AF2ADC43-DFDA-44B4-A588-AA048DEC711B}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{AF2ADC43-DFDA-44B4-A588-AA048DEC711B}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{AF2ADC43-DFDA-44B4-A588-AA048DEC711B}.Release|Any CPU.Build.0 = Release|Any CPU
+		{01AAF4B1-2FB5-4B23-BA64-0ADB323335E2}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{01AAF4B1-2FB5-4B23-BA64-0ADB323335E2}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{01AAF4B1-2FB5-4B23-BA64-0ADB323335E2}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{01AAF4B1-2FB5-4B23-BA64-0ADB323335E2}.Release|Any CPU.Build.0 = Release|Any CPU
+		{8A6A23B7-B160-4BF1-B256-42D0471F72FE}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{8A6A23B7-B160-4BF1-B256-42D0471F72FE}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{8A6A23B7-B160-4BF1-B256-42D0471F72FE}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{8A6A23B7-B160-4BF1-B256-42D0471F72FE}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{F3EDB517-4B5B-4B5D-8B7D-4082ADB1371E} = {7ECF2381-69AB-4949-8D1E-80B55EB5917E}
+		{338D73E9-09FC-4CAD-925B-0FB1BD32E247} = {7ECF2381-69AB-4949-8D1E-80B55EB5917E}
+		{68861ED3-D49D-436B-A2FA-C09D653228E3} = {37F4D0CF-615C-4F52-AFC4-1E1C1A5B1A64}
+		{9A6F9926-192E-45E0-8FAE-0FE39EDE7AFE} = {37F4D0CF-615C-4F52-AFC4-1E1C1A5B1A64}
+		{92514A19-F608-4609-B907-9EA65A7770B5} = {37F4D0CF-615C-4F52-AFC4-1E1C1A5B1A64}
+		{8470D167-8703-45F9-9EB8-28865F7DBB96} = {37F4D0CF-615C-4F52-AFC4-1E1C1A5B1A64}
+		{AF2ADC43-DFDA-44B4-A588-AA048DEC711B} = {37F4D0CF-615C-4F52-AFC4-1E1C1A5B1A64}
+		{01AAF4B1-2FB5-4B23-BA64-0ADB323335E2} = {37F4D0CF-615C-4F52-AFC4-1E1C1A5B1A64}
+		{8A6A23B7-B160-4BF1-B256-42D0471F72FE} = {37F4D0CF-615C-4F52-AFC4-1E1C1A5B1A64}
+	EndGlobalSection
+EndGlobal
