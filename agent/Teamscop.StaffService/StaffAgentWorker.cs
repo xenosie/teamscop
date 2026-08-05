@@ -1,4 +1,3 @@
-using Teamscop.Engine.Auth;
 using Teamscop.Engine.Lifecycle;
 using Teamscop.Engine.Sync;
 using Teamscop.Engine.Tracking;
@@ -6,7 +5,7 @@ using Teamscop.Engine.Tracking;
 namespace Teamscop.StaffService;
 
 /// <summary>
-/// Staff background loop: tracking (low priority) + connectivity + durable encrypted vault + sync flush.
+/// Staff background loop: tracking + business clock + connectivity + vault + sync flush.
 /// </summary>
 public sealed class StaffAgentWorker(
     ILogger<StaffAgentWorker> logger,
@@ -19,7 +18,6 @@ public sealed class StaffAgentWorker(
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        // Keep this service from preempting interactive work.
         try { Thread.CurrentThread.Priority = ThreadPriority.BelowNormal; } catch { /* ignore */ }
 
         var policy = RolePolicy.For(AgentRole.Staff);
@@ -43,17 +41,32 @@ public sealed class StaffAgentWorker(
                     {
                         await configClient.StartAsync(state.AccessToken, stoppingToken);
                         using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(15) };
+
                         var snap = await configClient.PullSnapshotAsync(http, state.AccessToken, stoppingToken);
                         if (snap is not null)
                         {
                             tracking.ApplyConfig(snap);
                         }
 
+                        var biz = await configClient.PullBusinessTimeAsync(http, state.AccessToken, stoppingToken);
+                        if (biz is not null)
+                        {
+                            tracking.ApplyBusinessClock(biz);
+                        }
+
                         configClient.ConfigChanged += cfg =>
                         {
                             tracking.ApplyConfig(cfg);
-                            logger.LogInformation("Tracking config updated v{Version} quality={Quality} period={Period}s",
-                                cfg.ConfigVersion, cfg.ScreenshotQuality, cfg.ScreenshotPeriodSeconds);
+                            logger.LogInformation("Tracking config updated v{Version}", cfg.ConfigVersion);
+                        };
+                        configClient.BusinessTimeChanged += cfg =>
+                        {
+                            tracking.ApplyBusinessClock(cfg);
+                            logger.LogInformation(
+                                "Business clock synced v{Version} tz={Tz} localAnchor={Y}-{M}-{D} {h}:{m}:{s}",
+                                cfg.ClockVersion, cfg.TimeZoneId,
+                                cfg.AnchorYear, cfg.AnchorMonth, cfg.AnchorDay,
+                                cfg.AnchorHour, cfg.AnchorMinute, cfg.AnchorSecond);
                         };
                         configStarted = true;
                     }
@@ -63,15 +76,16 @@ public sealed class StaffAgentWorker(
                     }
                 }
 
-                // Tracking first writes local vault; sync later pushes if online.
                 await tracking.TickAsync(stoppingToken);
 
                 var status = await syncEngine.ProbeAndRecordAsync(stoppingToken);
+                var bizNow = tracking.BusinessClock.Now();
                 logger.LogDebug(
-                    "online={Online} pending={Pending} configV={ConfigV}",
+                    "online={Online} pending={Pending} biz={Biz} v={ClockV}",
                     status.ApiReachable,
                     syncEngine.PendingCount,
-                    tracking.Config.ConfigVersion);
+                    bizNow.BusinessLocalIso,
+                    bizNow.ClockVersion);
 
                 if (!string.IsNullOrWhiteSpace(state.AccessToken))
                 {
@@ -80,7 +94,11 @@ public sealed class StaffAgentWorker(
                         {
                             deviceKey = state.DeviceKey,
                             role = state.Role ?? "staff",
-                            pending = syncEngine.PendingCount
+                            pending = syncEngine.PendingCount,
+                            businessLocal = bizNow.BusinessLocalIso,
+                            businessTimeZoneId = bizNow.TimeZoneId,
+                            businessClockVersion = bizNow.ClockVersion,
+                            businessSynchronized = bizNow.Synchronized
                         }),
                         stoppingToken);
 

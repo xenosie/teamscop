@@ -24,6 +24,9 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             entity.Property(x => x.CreatedAt).IsRequired();
             entity.Property(x => x.UninstallTotpSecret).HasMaxLength(128);
             entity.Property(x => x.UninstallTotpEnabled).HasDefaultValue(false);
+            entity.Property(x => x.BusinessTimeZoneId).HasMaxLength(100).HasDefaultValue("UTC");
+            entity.Property(x => x.BusinessClockVersion).HasDefaultValue(0L);
+            entity.Property(x => x.BusinessClockSynchronized).HasDefaultValue(false);
         });
 
         modelBuilder.Entity<UserAccount>(entity =>
@@ -64,8 +67,10 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             entity.Property(x => x.EventType).HasMaxLength(64).IsRequired();
             entity.Property(x => x.PayloadJson).IsRequired();
             entity.Property(x => x.ChainHash).HasMaxLength(128);
+            entity.Property(x => x.BusinessTimeZoneId).HasMaxLength(100);
             entity.HasIndex(x => new { x.UserId, x.ClientEventId }).IsUnique();
             entity.HasIndex(x => new { x.CompanyId, x.OccurredAt });
+            entity.HasIndex(x => new { x.CompanyId, x.BusinessOccurredAt });
             entity.HasIndex(x => new { x.UserId, x.VaultSequence });
             entity.HasIndex(x => x.EventType);
             entity.HasOne(x => x.Company)

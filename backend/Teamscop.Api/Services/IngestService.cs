@@ -84,6 +84,9 @@ public sealed class IngestService(AppDbContext db) : IIngestService
 
             long? vaultSeq = null;
             string? chainHash = null;
+            DateTime? businessOccurredAt = null;
+            string? businessTz = null;
+            long? businessClockVersion = null;
             try
             {
                 using var doc = JsonDocument.Parse(evt.PayloadJson);
@@ -103,6 +106,24 @@ public sealed class IngestService(AppDbContext db) : IIngestService
                 else if (doc.RootElement.TryGetProperty("ChainHash", out var hashEl2))
                 {
                     chainHash = hashEl2.GetString();
+                }
+
+                if (doc.RootElement.TryGetProperty("businessLocal", out var bizEl))
+                {
+                    if (DateTime.TryParse(bizEl.GetString(), out var bizDt))
+                    {
+                        businessOccurredAt = bizDt;
+                    }
+                }
+
+                if (doc.RootElement.TryGetProperty("businessTimeZoneId", out var tzEl))
+                {
+                    businessTz = tzEl.GetString();
+                }
+
+                if (doc.RootElement.TryGetProperty("businessClockVersion", out var verEl) && verEl.TryGetInt64(out var ver))
+                {
+                    businessClockVersion = ver;
                 }
             }
             catch (JsonException)
@@ -136,7 +157,10 @@ public sealed class IngestService(AppDbContext db) : IIngestService
                 ReceivedAt = DateTimeOffset.UtcNow,
                 PayloadJson = evt.PayloadJson,
                 VaultSequence = vaultSeq,
-                ChainHash = chainHash
+                ChainHash = chainHash,
+                BusinessOccurredAt = businessOccurredAt,
+                BusinessTimeZoneId = businessTz,
+                BusinessClockVersion = businessClockVersion
             });
             accepted.Add(evt.ClientEventId);
             existingSet.Add(evt.ClientEventId);

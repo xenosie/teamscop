@@ -62,6 +62,7 @@ builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<ILifecycleService, LifecycleService>();
 builder.Services.AddScoped<IIngestService, IngestService>();
 builder.Services.AddScoped<ITrackingConfigService, TrackingConfigService>();
+builder.Services.AddScoped<IBusinessTimeService, BusinessTimeService>();
 builder.Services.AddSignalR();
 
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
@@ -143,6 +144,7 @@ app.MapAuthEndpoints().RequireRateLimiting("auth");
 app.MapLifecycleEndpoints().RequireRateLimiting("auth");
 app.MapIngestEndpoints().RequireRateLimiting("auth");
 app.MapTrackingEndpoints().RequireRateLimiting("auth");
+app.MapBusinessTimeEndpoints().RequireRateLimiting("auth");
 app.MapHub<ConfigHub>("/hubs/config");
 
 app.Run();

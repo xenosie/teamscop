@@ -6,8 +6,7 @@ namespace Teamscop.Engine.Tracking;
 /// <summary>
 /// Low-impact tracking orchestrator:
 /// 1) write encrypted+compressed vault record (tamper-evident chain)
-/// 2) enqueue sync outbox item (sequence included for gap-free server chain)
-/// Never throws into the host loop — returns diagnostics instead.
+/// 2) enqueue sync outbox item stamped with company business time
 /// </summary>
 public sealed class TrackingCoordinator
 {
@@ -16,6 +15,7 @@ public sealed class TrackingCoordinator
     private readonly TimeTrackEngine _timeTrack;
     private readonly ScreenshotEngine _screenshots = new();
     private readonly ChromeHistoryWatcher _chrome;
+    private readonly BusinessClock _businessClock;
     private StaffTrackingConfig _config;
     private DateTimeOffset _lastScreenshotAt = DateTimeOffset.MinValue;
     private DateTimeOffset _lastTimeTrackFlush = DateTimeOffset.UtcNow;
@@ -26,25 +26,26 @@ public sealed class TrackingCoordinator
         IOutboxQueue outbox,
         ChromeHistoryWatcher chrome,
         StaffTrackingConfig? initialConfig = null,
-        TimeTrackEngine? timeTrack = null)
+        TimeTrackEngine? timeTrack = null,
+        BusinessClock? businessClock = null)
     {
         _vault = vault;
         _outbox = outbox;
         _chrome = chrome;
         _config = initialConfig ?? new StaffTrackingConfig();
         _timeTrack = timeTrack ?? new TimeTrackEngine();
+        _businessClock = businessClock ?? new BusinessClock();
     }
 
     public StaffTrackingConfig Config => _config;
+    public BusinessClock BusinessClock => _businessClock;
 
-    public void ApplyConfig(StaffTrackingConfig config)
-    {
-        _config = config;
-    }
+    public void ApplyConfig(StaffTrackingConfig config) => _config = config;
+
+    public void ApplyBusinessClock(BusinessClockConfig config) => _businessClock.Apply(config);
 
     public async Task TickAsync(CancellationToken cancellationToken = default)
     {
-        // Integrity: cheap tip check every tick; full scan at most hourly.
         var full = DateTimeOffset.UtcNow - _lastIntegrityFullScan > TimeSpan.FromHours(1);
         var report = _vault.Verify(fullScan: full);
         if (full)
@@ -78,24 +79,33 @@ public sealed class TrackingCoordinator
     private async Task TickTimeTrackAsync(CancellationToken ct)
     {
         var sample = _timeTrack.Poll();
-        // Flush a segment summary about once a minute to keep volume low.
         if (DateTimeOffset.UtcNow - _lastTimeTrackFlush < TimeSpan.FromSeconds(60))
         {
             return;
         }
 
-        var segment = _timeTrack.CloseSegment(DateTimeOffset.UtcNow);
-        _lastTimeTrackFlush = DateTimeOffset.UtcNow;
+        var endedUtc = DateTimeOffset.UtcNow;
+        var startedUtc = _lastTimeTrackFlush;
+        var segment = _timeTrack.CloseSegment(endedUtc);
+        _lastTimeTrackFlush = endedUtc;
+
+        var startedBiz = _businessClock.At(startedUtc);
+        var endedBiz = _businessClock.At(endedUtc);
         var payload = JsonSerializer.SerializeToUtf8Bytes(new
         {
             sample.State,
             sample.IdleSeconds,
-            segment.StartedAt,
-            segment.EndedAt,
-            segment.DurationSeconds,
+            startedAtUtc = startedUtc,
+            endedAtUtc = endedUtc,
+            startedAtBusiness = startedBiz.BusinessLocalIso,
+            endedAtBusiness = endedBiz.BusinessLocalIso,
+            durationSeconds = segment.DurationSeconds,
+            businessTimeZoneId = endedBiz.TimeZoneId,
+            businessClockVersion = endedBiz.ClockVersion,
+            businessSynchronized = endedBiz.Synchronized,
             algorithm = "last_input_hysteresis_v1"
         });
-        await PersistAndEnqueueAsync(AgentEventTypes.TimeTrack, "timetrack", payload, ct).ConfigureAwait(false);
+        await PersistAndEnqueueAsync(AgentEventTypes.TimeTrack, "timetrack", payload, endedUtc, ct).ConfigureAwait(false);
     }
 
     private async Task TickScreenshotAsync(CancellationToken ct)
@@ -107,7 +117,8 @@ public sealed class TrackingCoordinator
         }
 
         var payload = _screenshots.SerializeCaptures(captures, _config.ConfigVersion);
-        await PersistAndEnqueueAsync(AgentEventTypes.ScreenshotMeta, "screenshot", payload, ct).ConfigureAwait(false);
+        await PersistAndEnqueueAsync(AgentEventTypes.ScreenshotMeta, "screenshot", payload, DateTimeOffset.UtcNow, ct)
+            .ConfigureAwait(false);
     }
 
     private async Task TickChromeAsync(CancellationToken ct)
@@ -119,32 +130,45 @@ public sealed class TrackingCoordinator
         }
 
         var payload = _chrome.SerializeVisits(visits);
-        await PersistAndEnqueueAsync(AgentEventTypes.BrowserHistory, "browser_history", payload, ct).ConfigureAwait(false);
+        await PersistAndEnqueueAsync(AgentEventTypes.BrowserHistory, "browser_history", payload, DateTimeOffset.UtcNow, ct)
+            .ConfigureAwait(false);
     }
 
-    private async Task PersistAndEnqueueAsync(string eventType, string vaultKind, byte[] plain, CancellationToken ct)
+    private async Task PersistAndEnqueueAsync(
+        string eventType,
+        string vaultKind,
+        byte[] plain,
+        DateTimeOffset occurredUtc,
+        CancellationToken ct)
     {
+        var biz = _businessClock.At(occurredUtc);
         var append = _vault.Append(new VaultRecord
         {
             Kind = vaultKind,
-            OccurredAt = DateTimeOffset.UtcNow,
+            OccurredAt = occurredUtc,
             PlainPayload = plain
         });
 
-        // Outbox carries sequence + chain tip so server can detect gaps even if a push is lost.
         var envelope = new
         {
             vaultSequence = append.Sequence,
             chainHash = append.ChainHashHex,
             configVersion = _config.ConfigVersion,
+            occurredAtUtc = occurredUtc,
+            businessLocal = biz.BusinessLocalIso,
+            businessTimeZoneId = biz.TimeZoneId,
+            businessClockVersion = biz.ClockVersion,
+            businessSynchronized = biz.Synchronized,
             payloadBase64 = Convert.ToBase64String(plain)
         };
 
-        await _outbox.EnqueueAsync(OutboxItem.Create(eventType, envelope), ct).ConfigureAwait(false);
+        await _outbox.EnqueueAsync(OutboxItem.Create(eventType, envelope, occurredUtc), ct).ConfigureAwait(false);
     }
 
     private Task EnqueueVaultAlertAsync(VaultIntegrityReport report, CancellationToken ct)
-        => _outbox.EnqueueAsync(OutboxItem.Create(AgentEventTypes.VaultAlert, new
+    {
+        var biz = _businessClock.Now();
+        return _outbox.EnqueueAsync(OutboxItem.Create(AgentEventTypes.VaultAlert, new
         {
             alert = "vault_integrity",
             report.Ok,
@@ -154,6 +178,10 @@ public sealed class TrackingCoordinator
             report.TipMissing,
             report.ExpectedNextSequence,
             report.HighestSequenceFound,
-            report.RecordCount
+            report.RecordCount,
+            businessLocal = biz.BusinessLocalIso,
+            businessTimeZoneId = biz.TimeZoneId,
+            businessClockVersion = biz.ClockVersion
         }), ct);
+    }
 }

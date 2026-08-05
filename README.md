@@ -16,6 +16,7 @@ Windows agent + ASP.NET Core API. This repository currently ships the **Auth Eng
 - Phase-2 policy: [`docs/PHASE2_LIFECYCLE.md`](docs/PHASE2_LIFECYCLE.md)
 - Phase-3 sync: [`docs/PHASE3_SYNC.md`](docs/PHASE3_SYNC.md)
 - Phase-4 tracking: [`docs/PHASE4_TRACKING.md`](docs/PHASE4_TRACKING.md)
+- Phase-5 business time: [`docs/PHASE5_BUSINESS_TIME.md`](docs/PHASE5_BUSINESS_TIME.md)
 
 ## Auth model
 
@@ -78,5 +79,8 @@ The Windows agent must use the same `CompanyToken__Key` (base64 32-byte AES key)
 - `POST /api/ingest/batch` (Bearer) — durable agent event push
 - `GET /api/tracking/config/me` (Staff Bearer)
 - `PUT /api/tracking/config/{staffUserId}` (Admin Bearer) — quality/period; SignalR push to staff
-- Hub: `/hubs/config` — `TrackingConfigUpdated`
+- Hub: `/hubs/config` — `TrackingConfigUpdated`, `BusinessTimeUpdated`
+- `GET /api/business-time/me` (Bearer)
+- `POST /api/business-time/declare` (Admin Bearer) — absolute company sync clock
+- `GET /api/business-time/now` (Bearer)
 - `GET /health`

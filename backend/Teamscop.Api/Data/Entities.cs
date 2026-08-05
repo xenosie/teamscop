@@ -20,6 +20,19 @@ public sealed class Company
     public bool UninstallTotpEnabled { get; set; }
     public DateTimeOffset? UninstallTotpEnrolledAt { get; set; }
 
+    /// <summary>IANA or fixed-offset id for company business time (e.g. Europe/Berlin, UTC+03:00).</summary>
+    public string BusinessTimeZoneId { get; set; } = "UTC";
+    public long BusinessClockVersion { get; set; }
+    public bool BusinessClockSynchronized { get; set; }
+    public DateTimeOffset? BusinessAnchorUtc { get; set; }
+    public int? BusinessAnchorYear { get; set; }
+    public int? BusinessAnchorMonth { get; set; }
+    public int? BusinessAnchorDay { get; set; }
+    public int? BusinessAnchorHour { get; set; }
+    public int? BusinessAnchorMinute { get; set; }
+    public int? BusinessAnchorSecond { get; set; }
+    public DateTimeOffset? BusinessClockUpdatedAt { get; set; }
+
     public List<UserAccount> Users { get; set; } = [];
 }
 
@@ -65,6 +78,9 @@ public sealed class AgentEvent
     public required string PayloadJson { get; set; }
     public long? VaultSequence { get; set; }
     public string? ChainHash { get; set; }
+    public DateTime? BusinessOccurredAt { get; set; }
+    public string? BusinessTimeZoneId { get; set; }
+    public long? BusinessClockVersion { get; set; }
 
     public Company Company { get; set; } = null!;
     public UserAccount User { get; set; } = null!;

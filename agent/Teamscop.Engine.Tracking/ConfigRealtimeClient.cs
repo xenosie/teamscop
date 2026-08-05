@@ -4,16 +4,20 @@ using Microsoft.AspNetCore.SignalR.Client;
 namespace Teamscop.Engine.Tracking;
 
 /// <summary>
-/// Receives admin tracking config immediately via SignalR; falls back to REST snapshot.
+/// Receives admin tracking + business-time config immediately via SignalR.
 /// </summary>
 public sealed class ConfigRealtimeClient : IAsyncDisposable
 {
+    private static readonly JsonSerializerOptions JsonOptions = new() { PropertyNameCaseInsensitive = true };
+
     private readonly string _baseUrl;
     private HubConnection? _connection;
     private StaffTrackingConfig _config = new();
+    private BusinessClockConfig _businessTime = new();
     private readonly object _gate = new();
 
     public event Action<StaffTrackingConfig>? ConfigChanged;
+    public event Action<BusinessClockConfig>? BusinessTimeChanged;
 
     public ConfigRealtimeClient(string baseUrl)
     {
@@ -23,6 +27,11 @@ public sealed class ConfigRealtimeClient : IAsyncDisposable
     public StaffTrackingConfig Current
     {
         get { lock (_gate) return _config; }
+    }
+
+    public BusinessClockConfig CurrentBusinessTime
+    {
+        get { lock (_gate) return _businessTime; }
     }
 
     public async Task StartAsync(string accessToken, CancellationToken cancellationToken = default)
@@ -41,6 +50,12 @@ public sealed class ConfigRealtimeClient : IAsyncDisposable
             ConfigChanged?.Invoke(cfg);
         });
 
+        _connection.On<BusinessClockConfig>("BusinessTimeUpdated", cfg =>
+        {
+            lock (_gate) _businessTime = cfg;
+            BusinessTimeChanged?.Invoke(cfg);
+        });
+
         await _connection.StartAsync(cancellationToken).ConfigureAwait(false);
     }
 
@@ -55,11 +70,32 @@ public sealed class ConfigRealtimeClient : IAsyncDisposable
         }
 
         await using var stream = await resp.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
-        var cfg = await JsonSerializer.DeserializeAsync<StaffTrackingConfig>(stream, cancellationToken: ct).ConfigureAwait(false);
+        var cfg = await JsonSerializer.DeserializeAsync<StaffTrackingConfig>(stream, JsonOptions, ct).ConfigureAwait(false);
         if (cfg is not null)
         {
             lock (_gate) _config = cfg;
             ConfigChanged?.Invoke(cfg);
+        }
+
+        return cfg;
+    }
+
+    public async Task<BusinessClockConfig?> PullBusinessTimeAsync(HttpClient http, string accessToken, CancellationToken ct = default)
+    {
+        using var req = new HttpRequestMessage(HttpMethod.Get, $"{_baseUrl}/api/business-time/me");
+        req.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", accessToken);
+        using var resp = await http.SendAsync(req, ct).ConfigureAwait(false);
+        if (!resp.IsSuccessStatusCode)
+        {
+            return null;
+        }
+
+        await using var stream = await resp.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
+        var cfg = await JsonSerializer.DeserializeAsync<BusinessClockConfig>(stream, JsonOptions, ct).ConfigureAwait(false);
+        if (cfg is not null)
+        {
+            lock (_gate) _businessTime = cfg;
+            BusinessTimeChanged?.Invoke(cfg);
         }
 
         return cfg;

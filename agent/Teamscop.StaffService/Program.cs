@@ -61,11 +61,13 @@ builder.Services.AddSingleton(sp =>
                ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "Teamscop", "Agent");
     return new ChromeHistoryWatcher(root);
 });
+builder.Services.AddSingleton<BusinessClock>();
 builder.Services.AddSingleton<ConfigRealtimeClient>(_ => new ConfigRealtimeClient(apiBase));
 builder.Services.AddSingleton(sp => new TrackingCoordinator(
     sp.GetRequiredService<SecureVault>(),
     sp.GetRequiredService<IOutboxQueue>(),
-    sp.GetRequiredService<ChromeHistoryWatcher>()));
+    sp.GetRequiredService<ChromeHistoryWatcher>(),
+    businessClock: sp.GetRequiredService<BusinessClock>()));
 
 builder.Services.AddHostedService<StaffAgentWorker>();
 
