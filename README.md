@@ -34,6 +34,21 @@ dotnet run --project backend/Teamscop.Api
 
 Development uses an in-memory database (`appsettings.Development.json`).
 
+## CI / E2E on GitHub
+
+Workflow: [`.github/workflows/e2e.yml`](.github/workflows/e2e.yml)
+
+| Job | Runner | What it covers |
+|---|---|---|
+| `linux-api-e2e` | ubuntu-latest | Full `dotnet test` (unit + end-to-end API path) |
+| `windows-agent-build` | windows-latest | Build Staff/Admin/Uninstall + re-run tests on Windows |
+| `live-smoke` | ubuntu-latest | Hits `https://teamscop.com` (manual dispatch or push to `main`) |
+
+```bash
+# local equivalent of CI tests
+ASPNETCORE_ENVIRONMENT=Development dotnet test -c Release
+```
+
 ## Production deploy (this VPS)
 
 ```bash
