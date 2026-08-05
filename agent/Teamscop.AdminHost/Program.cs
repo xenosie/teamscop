@@ -37,7 +37,7 @@ public static class Program
         Console.WriteLine("  enroll-totp <staffId>              — enroll per-staff TOTP (USB + uninstall)");
         Console.WriteLine("  code <staffId>                     — generate current 6-digit code");
         Console.WriteLine("  org                                — show company teams structure");
-        Console.WriteLine("  team-create <name> <leaderId>      — create team with leader");
+        Console.WriteLine("  team-create <name> [leaderId]     — create team (leader optional)");
         Console.WriteLine("  team-rename <teamId> <name>        — rename team");
         Console.WriteLine("  team-leader <teamId> <staffId>     — change team leader");
         Console.WriteLine("  team-members <teamId> <id> [id…]   — replace member list");
@@ -166,15 +166,26 @@ public static class Program
 
                 if (cmd == "team-create")
                 {
-                    if (parts.Length < 3 || !Guid.TryParse(parts[^1], out var leaderId))
+                    if (parts.Length < 2)
                     {
-                        Console.WriteLine("Usage: team-create <name> <leaderId>");
+                        Console.WriteLine("Usage: team-create <name> [leaderId]");
                         continue;
                     }
 
-                    var name = string.Join(' ', parts[1..^1]);
+                    Guid? leaderId = null;
+                    string name;
+                    if (parts.Length >= 3 && Guid.TryParse(parts[^1], out var parsedLeader))
+                    {
+                        leaderId = parsedLeader;
+                        name = string.Join(' ', parts[1..^1]);
+                    }
+                    else
+                    {
+                        name = string.Join(' ', parts[1..]);
+                    }
+
                     var team = await org.CreateTeamAsync(state.AccessToken!, name, leaderId, cts.Token);
-                    Console.WriteLine($"Created team {team.Name} ({team.TeamId}) leader={team.Leader.Username}");
+                    Console.WriteLine($"Created team {team.Name} ({team.TeamId}) leader={team.Leader?.Username ?? "(none)"}");
                     continue;
                 }
 
@@ -187,7 +198,7 @@ public static class Program
                     }
 
                     var name = string.Join(' ', parts[2..]);
-                    var team = await org.UpdateTeamAsync(state.AccessToken!, teamId, name, null, cts.Token);
+                    var team = await org.UpdateTeamAsync(state.AccessToken!, teamId, name: name, ct: cts.Token);
                     Console.WriteLine($"Renamed → {team.Name}");
                     continue;
                 }
@@ -202,8 +213,9 @@ public static class Program
                         continue;
                     }
 
-                    var team = await org.UpdateTeamAsync(state.AccessToken!, teamId, null, leaderId, cts.Token);
-                    Console.WriteLine($"Leader → {team.Leader.Username}");
+                    var team = await org.UpdateTeamAsync(
+                        state.AccessToken!, teamId, leaderUserId: leaderId, ct: cts.Token);
+                    Console.WriteLine($"Leader → {team.Leader?.Username ?? "(none)"}");
                     continue;
                 }
 

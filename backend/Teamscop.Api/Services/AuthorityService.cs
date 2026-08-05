@@ -147,6 +147,10 @@ public sealed class AuthorityService(AppDbContext db, IHubContext<ConfigHub> hub
             AgentEventTypes.TimeTrack => eff.Packages.Contains(AuthorityPackageIds.ViewTimeTrack),
             AgentEventTypes.BrowserHistory => eff.Packages.Contains(AuthorityPackageIds.ViewBrowserHistory),
             AgentEventTypes.UsbEvent => eff.Packages.Contains(AuthorityPackageIds.UsbApproval),
+            // Phase 9 lifecycle history (admins already pass above).
+            AgentEventTypes.Registration or AgentEventTypes.PowerOff
+                or AgentEventTypes.Uninstall or AgentEventTypes.AppBroken
+                => eff.Packages.Contains(AuthorityPackageIds.UninstallApproval),
             AgentEventTypes.Heartbeat or AgentEventTypes.Connectivity or AgentEventTypes.VaultAlert
                 => eff.Packages.Any(p =>
                     p is AuthorityPackageIds.ViewScreenshot

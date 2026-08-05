@@ -1,0 +1,39 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:controls="clr-namespace:Teamscop.App.Controls"
+             xmlns:heroIcons="clr-namespace:HeroIconsAvalonia.Controls;assembly=HeroIconsAvalonia"
+             x:Class="Teamscop.App.Controls.TsTitleBar"
+             x:Name="Root"
+             Height="36">
+
+  <Border Background="{StaticResource TsAccentBrush}"
+          BorderBrush="{StaticResource TsAccentHoverBrush}"
+          BorderThickness="0,0,0,1">
+    <Grid ColumnDefinitions="*,Auto">
+      <Border Grid.Column="0"
+              Name="DragArea"
+              Background="Transparent"
+              Cursor="Arrow">
+        <TextBlock Text="{Binding Title, ElementName=Root}"
+                   Foreground="White"
+                   FontWeight="SemiBold"
+                   FontSize="13"
+                   VerticalAlignment="Center"
+                   Margin="14,0,0,0"
+                   IsHitTestVisible="False" />
+      </Border>
+
+      <Button Grid.Column="1"
+              Name="BtnClose"
+              Classes="ts-caption-close"
+              Width="46"
+              Height="36"
+              ToolTip.Tip="Close">
+        <heroIcons:HeroIcon Type="XMark" Kind="Outline" Width="16" Height="16"
+                            Foreground="White"
+                            HorizontalAlignment="Center"
+                            VerticalAlignment="Center" />
+      </Button>
+    </Grid>
+  </Border>
+</UserControl>

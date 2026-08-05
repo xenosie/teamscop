@@ -72,10 +72,29 @@ jobs:
           dotnet build agent/Teamscop.Engine.Tracking/Teamscop.Engine.Tracking.csproj -c Release
           dotnet build agent/Teamscop.Engine.Usb/Teamscop.Engine.Usb.csproj -c Release
 
+      - name: Build Avalonia admin App
+        run: dotnet build agent/Teamscop.App/Teamscop.App.csproj -c Release
+
       - name: Run engine tests on Windows runner
         env:
           ASPNETCORE_ENVIRONMENT: Development
         run: dotnet test backend/Teamscop.Api.Tests/Teamscop.Api.Tests.csproj -c Release --verbosity normal
+
+  linux-app-build:
+    name: Linux Avalonia App Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Build Teamscop.App (Release)
+        run: dotnet build agent/Teamscop.App/Teamscop.App.csproj -c Release
 
   live-smoke:
     name: Live smoke (teamscop.com)

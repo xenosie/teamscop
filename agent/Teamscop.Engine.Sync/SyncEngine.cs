@@ -68,10 +68,25 @@ public sealed class SyncEngine(
             var result = await syncApi.PushBatchAsync(accessToken, pending, cancellationToken).ConfigureAwait(false);
             var done = result.AcceptedIds.Concat(result.DuplicateIds).Distinct().ToList();
             await outbox.AcknowledgeAsync(done, cancellationToken).ConfigureAwait(false);
+
+            // Poison items: record reason then remove from pending (never retry permanently invalid types/payloads).
+            var rejectedIds = new List<Guid>();
+            foreach (var bad in result.Rejected)
+            {
+                await outbox.MarkFailedAsync(bad.ClientEventId, bad.Reason, cancellationToken).ConfigureAwait(false);
+                rejectedIds.Add(bad.ClientEventId);
+            }
+
+            if (rejectedIds.Count > 0)
+            {
+                await outbox.AcknowledgeAsync(rejectedIds, cancellationToken).ConfigureAwait(false);
+            }
+
             return done.Count;
         }
         catch (Exception ex)
         {
+            // Transport / server failure: bump attempts but keep items for retry.
             foreach (var item in pending)
             {
                 await outbox.MarkFailedAsync(item.ClientEventId, ex.Message, cancellationToken).ConfigureAwait(false);

@@ -70,6 +70,10 @@ builder.Services.AddSingleton(sp => new TrackingCoordinator(
     sp.GetRequiredService<ChromeHistoryWatcher>(),
     businessClock: sp.GetRequiredService<BusinessClock>()));
 
+builder.Services.AddSingleton(sp => new AppBrokenWatchdog(
+    AppContext.BaseDirectory,
+    sp.GetRequiredService<IOutboxQueue>()));
+
 builder.Services.AddSingleton(sp =>
 {
     var store = sp.GetRequiredService<LocalAgentStore>();

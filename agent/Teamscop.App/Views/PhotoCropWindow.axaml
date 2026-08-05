@@ -1,0 +1,69 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:controls="clr-namespace:Teamscop.App.Controls"
+        xmlns:heroIcons="clr-namespace:HeroIconsAvalonia.Controls;assembly=HeroIconsAvalonia"
+        x:Class="Teamscop.App.Views.PhotoCropWindow"
+        Title="Crop photo"
+        Icon="/Assets/teamscop-icon.ico"
+        Width="520" Height="620"
+        WindowStartupLocation="CenterOwner"
+        CanResize="False"
+        SystemDecorations="None"
+        ExtendClientAreaToDecorationsHint="True"
+        ExtendClientAreaChromeHints="NoChrome"
+        Background="{StaticResource TsSurfaceBrush}"
+        BorderBrush="{StaticResource TsAccentBrush}"
+        BorderThickness="1">
+
+  <DockPanel>
+    <controls:TsTitleBar DockPanel.Dock="Top" Title="Crop photo" />
+    <Grid RowDefinitions="Auto,*,Auto,Auto" Margin="24">
+      <TextBlock Text="Business photo"
+                 FontSize="20"
+                 FontWeight="SemiBold"
+                 Foreground="{StaticResource TsAccentBrush}"
+                 Margin="0,0,0,16" />
+
+      <!-- Circular crop area -->
+      <Panel Grid.Row="1"
+             Width="320" Height="320"
+             HorizontalAlignment="Center"
+             Cursor="Hand">
+        <Border Name="CropHost"
+                Width="320" Height="320"
+                Classes="ts-circle-avatar"
+                Background="#0F172A"
+                ClipToBounds="True">
+          <Image Name="PreviewImage"
+                 Stretch="Uniform"
+                 RenderTransformOrigin="50%,50%" />
+        </Border>
+        <Ellipse Width="320" Height="320"
+                 Stroke="{StaticResource TsAccentBrush}"
+                 StrokeThickness="2"
+                 Fill="Transparent"
+                 IsHitTestVisible="False" />
+      </Panel>
+
+      <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="12"
+                  HorizontalAlignment="Center" Margin="0,20,0,0">
+        <heroIcons:HeroIcon Type="MagnifyingGlassMinus" Kind="Outline" Width="18" Height="18"
+                            Foreground="{StaticResource TsAccentBrush}"
+                            VerticalAlignment="Center" />
+        <Slider Name="ZoomSlider"
+                Minimum="1" Maximum="3" Value="1"
+                Width="220"
+                VerticalAlignment="Center" />
+        <heroIcons:HeroIcon Type="MagnifyingGlassPlus" Kind="Outline" Width="18" Height="18"
+                            Foreground="{StaticResource TsAccentBrush}"
+                            VerticalAlignment="Center" />
+      </StackPanel>
+
+      <StackPanel Grid.Row="3" Orientation="Horizontal" Spacing="10"
+                  HorizontalAlignment="Right" Margin="0,24,0,0">
+        <Button Classes="ts-toolbar" Content="Cancel" Name="BtnCancel" MinWidth="100" Height="40" />
+        <Button Classes="ts-primary" Content="Use photo" Name="BtnApply" MinWidth="120" Height="40" />
+      </StackPanel>
+    </Grid>
+  </DockPanel>
+</Window>

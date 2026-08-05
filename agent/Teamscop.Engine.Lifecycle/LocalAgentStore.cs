@@ -9,6 +9,9 @@ public sealed class LocalAgentState
     public string? Role { get; set; }
     public Guid? CompanyId { get; set; }
     public string? ApiBaseUrl { get; set; }
+    public string? Username { get; set; }
+    public string? CompanyName { get; set; }
+    public string? CompanyAvatarUrl { get; set; }
 }
 
 /// <summary>

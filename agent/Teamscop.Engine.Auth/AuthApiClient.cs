@@ -23,7 +23,7 @@ public sealed class AuthApiClient : IDisposable
         }
 
         _ownsClient = httpClient is null;
-        _http = httpClient ?? new HttpClient();
+        _http = httpClient ?? new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
         _http.BaseAddress = new Uri(baseUrl.TrimEnd('/') + "/");
     }
 
@@ -131,16 +131,8 @@ public sealed class AuthApiClient : IDisposable
         return session ?? throw new InvalidOperationException("Empty auth session response.");
     }
 
-    private static async Task EnsureSuccessAsync(HttpResponseMessage response, CancellationToken cancellationToken)
-    {
-        if (response.IsSuccessStatusCode)
-        {
-            return;
-        }
-
-        var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-        throw new HttpRequestException($"Auth API error {(int)response.StatusCode}: {body}");
-    }
+    private static Task EnsureSuccessAsync(HttpResponseMessage response, CancellationToken cancellationToken)
+        => ApiClientException.ThrowIfUnsuccessfulAsync(response, "Auth API", cancellationToken);
 
     public void Dispose()
     {

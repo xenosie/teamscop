@@ -1,0 +1,190 @@
+<Styles xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+  <Styles.Resources>
+    <ResourceDictionary>
+      <ResourceDictionary.MergedDictionaries>
+        <ResourceInclude Source="avares://Teamscop.App/Themes/TeamscopTheme.axaml" />
+      </ResourceDictionary.MergedDictionaries>
+    </ResourceDictionary>
+  </Styles.Resources>
+
+  <!-- No rounded corners anywhere -->
+  <Style Selector="Border">
+    <Setter Property="CornerRadius" Value="0" />
+  </Style>
+  <!-- Circular business avatar (explicit override) -->
+  <Style Selector="Border.ts-circle-avatar">
+    <Setter Property="CornerRadius" Value="9999" />
+    <Setter Property="ClipToBounds" Value="True" />
+  </Style>
+  <Style Selector="Button">
+    <Setter Property="CornerRadius" Value="0" />
+  </Style>
+  <Style Selector="TextBox">
+    <Setter Property="CornerRadius" Value="0" />
+  </Style>
+  <Style Selector="TextBox /template/ Border#PART_BorderElement">
+    <Setter Property="CornerRadius" Value="0" />
+  </Style>
+
+  <!-- Global Inter -->
+  <Style Selector="TextBlock">
+    <Setter Property="FontFamily" Value="{StaticResource TsFont}" />
+  </Style>
+  <Style Selector="TextBox">
+    <Setter Property="FontFamily" Value="{StaticResource TsFont}" />
+  </Style>
+  <Style Selector="Button">
+    <Setter Property="FontFamily" Value="{StaticResource TsFont}" />
+  </Style>
+  <Style Selector="Label">
+    <Setter Property="FontFamily" Value="{StaticResource TsFont}" />
+  </Style>
+  <Style Selector="Window">
+    <Setter Property="FontFamily" Value="{StaticResource TsFont}" />
+    <Setter Property="Background" Value="{StaticResource TsBackgroundBrush}" />
+    <Setter Property="Foreground" Value="{StaticResource TsTextBrush}" />
+    <Setter Property="FontSize" Value="14" />
+  </Style>
+
+  <Style Selector="TextBlock.ts-muted">
+    <Setter Property="Foreground" Value="{StaticResource TsTextMutedBrush}" />
+  </Style>
+
+  <Style Selector="TextBlock.ts-brand">
+    <Setter Property="Foreground" Value="{StaticResource TsAccentBrush}" />
+    <Setter Property="FontWeight" Value="Bold" />
+    <Setter Property="FontSize" Value="18" />
+    <Setter Property="LetterSpacing" Value="-0.3" />
+  </Style>
+
+  <!-- Default buttons use primary theme unless overridden -->
+  <Style Selector="Button.ts-primary">
+    <Setter Property="Theme" Value="{StaticResource TsPrimaryButton}" />
+  </Style>
+
+  <Style Selector="Button.ts-toolbar">
+    <Setter Property="Theme" Value="{StaticResource TsToolbarButton}" />
+  </Style>
+
+  <Style Selector="Button.ts-link">
+    <Setter Property="Theme" Value="{StaticResource TsLinkButton}" />
+  </Style>
+
+  <Style Selector="Button.ts-photo">
+    <Setter Property="Theme" Value="{StaticResource TsPhotoButton}" />
+  </Style>
+
+  <Style Selector="Button.ts-caption-close">
+    <Setter Property="Theme" Value="{StaticResource TsCaptionCloseButton}" />
+  </Style>
+
+  <Style Selector="Button.ts-sidebar">
+    <Setter Property="Theme" Value="{StaticResource TsSidebarButton}" />
+  </Style>
+
+  <Style Selector="Button.ts-staff-row">
+    <Setter Property="Theme" Value="{StaticResource TsSidebarButton}" />
+    <Setter Property="Padding" Value="36,6,12,6" />
+    <Setter Property="FontWeight" Value="Medium" />
+    <Setter Property="FontSize" Value="13" />
+  </Style>
+
+  <Style Selector="Button.ts-staff-detail">
+    <Setter Property="Theme" Value="{StaticResource TsSidebarButton}" />
+    <Setter Property="Padding" Value="16,11" />
+  </Style>
+
+  <Style Selector="Border.ts-staff-row:pointerover">
+    <Setter Property="Background" Value="{StaticResource TsSidebarHoverBrush}" />
+  </Style>
+  <Style Selector="Border.ts-leader-slot:pointerover">
+    <Setter Property="Background" Value="#F3F4F6" />
+  </Style>
+
+  <!-- coolinput-style team box -->
+  <Style Selector="Border.ts-coolinput">
+    <Setter Property="Background" Value="#E8E8E8" />
+    <Setter Property="BorderBrush" Value="{StaticResource TsAccentBrush}" />
+    <Setter Property="BorderThickness" Value="2" />
+    <Setter Property="CornerRadius" Value="5" />
+    <Setter Property="Padding" Value="12,16,12,12" />
+  </Style>
+  <Style Selector="TextBox.ts-coolinput-label">
+    <Setter Property="FontSize" Value="12" />
+    <Setter Property="FontWeight" Value="Bold" />
+    <Setter Property="Foreground" Value="{StaticResource TsAccentBrush}" />
+    <Setter Property="Background" Value="#E8E8E8" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="Padding" Value="3,0" />
+    <Setter Property="MinHeight" Value="0" />
+    <Setter Property="CaretBrush" Value="{StaticResource TsAccentBrush}" />
+  </Style>
+  <Style Selector="TextBox.ts-coolinput-label:focus /template/ Border#PART_BorderElement">
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="Background" Value="#E8E8E8" />
+  </Style>
+  <Style Selector="TextBox.ts-coolinput-label /template/ Border#PART_BorderElement">
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="Background" Value="#E8E8E8" />
+    <Setter Property="CornerRadius" Value="0" />
+  </Style>
+
+  <Style Selector="Border.ts-card">
+    <Setter Property="Theme" Value="{StaticResource TsCardBorder}" />
+  </Style>
+
+  <!-- Style only — do not replace Theme (that breaks typing by dropping Fluent template) -->
+  <Style Selector="TextBox.ts-field">
+    <Setter Property="FontFamily" Value="{StaticResource TsFont}" />
+    <Setter Property="Foreground" Value="{StaticResource TsTextBrush}" />
+    <Setter Property="Background" Value="{StaticResource TsSurfaceBrush}" />
+    <Setter Property="BorderBrush" Value="{StaticResource TsBorderBrush}" />
+    <Setter Property="BorderThickness" Value="{StaticResource TsBorderThickness}" />
+    <Setter Property="CornerRadius" Value="0" />
+    <Setter Property="Padding" Value="10,6" />
+    <Setter Property="MinHeight" Value="36" />
+    <Setter Property="IsEnabled" Value="True" />
+    <Setter Property="IsReadOnly" Value="False" />
+    <Setter Property="Focusable" Value="True" />
+  </Style>
+  <Style Selector="TextBox.ts-field:focus /template/ Border#PART_BorderElement">
+    <Setter Property="BorderBrush" Value="{StaticResource TsBorderStrongBrush}" />
+    <Setter Property="CornerRadius" Value="0" />
+  </Style>
+
+  <!-- Accent borders on focusable boxes -->
+  <Style Selector="Border.ts-box">
+    <Setter Property="Background" Value="{StaticResource TsSurfaceBrush}" />
+    <Setter Property="BorderBrush" Value="{StaticResource TsBorderBrush}" />
+    <Setter Property="BorderThickness" Value="{StaticResource TsBorderThickness}" />
+    <Setter Property="CornerRadius" Value="0" />
+  </Style>
+
+  <!-- Subtle transparent scrollbar (staff list, etc.) -->
+  <Style Selector="ScrollViewer.ts-transparent-scroll">
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="Padding" Value="0" />
+  </Style>
+  <Style Selector="ScrollViewer.ts-transparent-scroll ScrollBar">
+    <Setter Property="Opacity" Value="0.3" />
+    <Setter Property="AllowAutoHide" Value="True" />
+  </Style>
+  <Style Selector="ScrollViewer.ts-transparent-scroll ScrollBar:vertical">
+    <Setter Property="Width" Value="6" />
+  </Style>
+  <Style Selector="ScrollViewer.ts-transparent-scroll ScrollBar:pointerover">
+    <Setter Property="Opacity" Value="0.65" />
+  </Style>
+  <Style Selector="ScrollViewer.ts-transparent-scroll ScrollBar /template/ RepeatButton">
+    <Setter Property="IsVisible" Value="False" />
+  </Style>
+  <Style Selector="ScrollViewer.ts-transparent-scroll ScrollBar /template/ Thumb">
+    <Setter Property="Background" Value="#662563EB" />
+  </Style>
+  <Style Selector="ScrollViewer.ts-transparent-scroll ScrollBar /template/ Thumb:pointerover">
+    <Setter Property="Background" Value="#992563EB" />
+  </Style>
+
+</Styles>

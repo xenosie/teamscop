@@ -1,8 +1,10 @@
+using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Teamscop.Api.Data;
 using Teamscop.Api.Options;
 using Teamscop.Engine.Auth;
+using Teamscop.Engine.Sync;
 
 namespace Teamscop.Api.Services;
 
@@ -137,6 +139,23 @@ public sealed class AuthService(
         };
 
         db.Users.Add(staff);
+        var devicePrefix = staff.DeviceKey.Length >= 8 ? staff.DeviceKey[..8] : staff.DeviceKey;
+        db.AgentEvents.Add(new AgentEvent
+        {
+            Id = Guid.NewGuid(),
+            CompanyId = company.Id,
+            UserId = staff.Id,
+            ClientEventId = Guid.NewGuid(),
+            EventType = AgentEventTypes.Registration,
+            OccurredAt = DateTimeOffset.UtcNow,
+            ReceivedAt = DateTimeOffset.UtcNow,
+            PayloadJson = JsonSerializer.Serialize(new
+            {
+                kind = AgentEventTypes.Registration,
+                username = staff.Username,
+                deviceKeyPrefix = devicePrefix
+            })
+        });
         await db.SaveChangesAsync(ct);
         return CreateSession(staff, company, companyToken: null);
     }

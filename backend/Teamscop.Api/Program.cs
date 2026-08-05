@@ -107,6 +107,30 @@ builder.Services.AddSwaggerGen();
 var app = builder.Build();
 app.UseForwardedHeaders();
 
+// Lightweight JSON errors for unhandled exceptions (no stack traces outside Development).
+app.Use(async (ctx, next) =>
+{
+    try
+    {
+        await next();
+    }
+    catch (Exception ex)
+    {
+        if (ctx.Response.HasStarted)
+        {
+            throw;
+        }
+
+        ctx.Response.Clear();
+        ctx.Response.StatusCode = StatusCodes.Status500InternalServerError;
+        ctx.Response.ContentType = "application/json";
+        var message = app.Environment.IsDevelopment()
+            ? ex.Message
+            : "An unexpected error occurred.";
+        await ctx.Response.WriteAsJsonAsync(new { error = message });
+    }
+});
+
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();

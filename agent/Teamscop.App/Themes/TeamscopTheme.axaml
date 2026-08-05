@@ -1,0 +1,291 @@
+<ResourceDictionary xmlns="https://github.com/avaloniaui"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+  <!-- Bright blue light theme tokens -->
+  <Color x:Key="TsBlue50">#EFF6FF</Color>
+  <Color x:Key="TsBlue100">#DBEAFE</Color>
+  <Color x:Key="TsBlue200">#BFDBFE</Color>
+  <Color x:Key="TsBlue400">#60A5FA</Color>
+  <Color x:Key="TsBlue500">#3B82F6</Color>
+  <Color x:Key="TsBlue600">#2563EB</Color>
+  <Color x:Key="TsBlue700">#1D4ED8</Color>
+
+  <Color x:Key="TsBg">#F8FAFC</Color>
+  <Color x:Key="TsSurface">#FFFFFF</Color>
+  <Color x:Key="TsText">#0F172A</Color>
+  <Color x:Key="TsTextMuted">#64748B</Color>
+  <Color x:Key="TsBorder">#2563EB</Color>
+  <Color x:Key="TsBorderStrong">#2563EB</Color>
+
+  <SolidColorBrush x:Key="TsAccentBrush" Color="{StaticResource TsBlue600}" />
+  <SolidColorBrush x:Key="TsAccentSoftBrush" Color="{StaticResource TsBlue100}" />
+  <SolidColorBrush x:Key="TsAccentHoverBrush" Color="{StaticResource TsBlue700}" />
+  <SolidColorBrush x:Key="TsBackgroundBrush" Color="{StaticResource TsBg}" />
+  <SolidColorBrush x:Key="TsSurfaceBrush" Color="{StaticResource TsSurface}" />
+  <SolidColorBrush x:Key="TsTextBrush" Color="{StaticResource TsText}" />
+  <SolidColorBrush x:Key="TsTextMutedBrush" Color="{StaticResource TsTextMuted}" />
+  <SolidColorBrush x:Key="TsBorderBrush" Color="{StaticResource TsBorder}" />
+  <SolidColorBrush x:Key="TsBorderStrongBrush" Color="{StaticResource TsBorderStrong}" />
+
+  <!-- Fluent expects Color (not Brush) for SystemAccentColor* keys -->
+  <Color x:Key="SystemAccentColor">#2563EB</Color>
+  <Color x:Key="SystemAccentColorDark1">#1D4ED8</Color>
+  <Color x:Key="SystemAccentColorDark2">#1E40AF</Color>
+  <Color x:Key="SystemAccentColorLight1">#60A5FA</Color>
+  <Color x:Key="SystemAccentColorLight2">#BFDBFE</Color>
+  <Color x:Key="SystemAccentColorLight3">#DBEAFE</Color>
+
+  <CornerRadius x:Key="TsRadius">0</CornerRadius>
+  <Thickness x:Key="TsBorderThickness">1</Thickness>
+  <FontFamily x:Key="TsFont">fonts:Inter#Inter, Inter, sans-serif</FontFamily>
+
+  <!-- Primary button -->
+  <ControlTheme x:Key="TsPrimaryButton" TargetType="Button">
+    <Setter Property="Background" Value="{StaticResource TsAccentBrush}" />
+    <Setter Property="Foreground" Value="White" />
+    <Setter Property="BorderBrush" Value="{StaticResource TsAccentHoverBrush}" />
+    <Setter Property="BorderThickness" Value="{StaticResource TsBorderThickness}" />
+    <Setter Property="CornerRadius" Value="0" />
+    <Setter Property="Padding" Value="14,8" />
+    <Setter Property="FontFamily" Value="{StaticResource TsFont}" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="Cursor" Value="Hand" />
+    <Setter Property="Template">
+      <ControlTemplate>
+        <Border Background="{TemplateBinding Background}"
+                BorderBrush="{TemplateBinding BorderBrush}"
+                BorderThickness="{TemplateBinding BorderThickness}"
+                CornerRadius="0"
+                Padding="{TemplateBinding Padding}">
+          <ContentPresenter HorizontalContentAlignment="Center"
+                            VerticalContentAlignment="Center"
+                            Content="{TemplateBinding Content}"
+                            ContentTemplate="{TemplateBinding ContentTemplate}" />
+        </Border>
+      </ControlTemplate>
+    </Setter>
+    <Style Selector="^:pointerover">
+      <Setter Property="Background" Value="{StaticResource TsAccentHoverBrush}" />
+    </Style>
+    <Style Selector="^:pressed">
+      <Setter Property="Background" Value="{StaticResource TsBlue700}" />
+    </Style>
+    <Style Selector="^:disabled">
+      <Setter Property="Opacity" Value="0.45" />
+    </Style>
+  </ControlTheme>
+
+  <!-- Ghost / toolbar button -->
+  <ControlTheme x:Key="TsToolbarButton" TargetType="Button">
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="Foreground" Value="{StaticResource TsTextBrush}" />
+    <Setter Property="BorderBrush" Value="Transparent" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="0" />
+    <Setter Property="Padding" Value="10,8" />
+    <Setter Property="FontFamily" Value="{StaticResource TsFont}" />
+    <Setter Property="FontWeight" Value="Medium" />
+    <Setter Property="Cursor" Value="Hand" />
+    <Setter Property="Template">
+      <ControlTemplate>
+        <Border Background="{TemplateBinding Background}"
+                BorderBrush="{TemplateBinding BorderBrush}"
+                BorderThickness="{TemplateBinding BorderThickness}"
+                CornerRadius="0"
+                Padding="{TemplateBinding Padding}">
+          <ContentPresenter HorizontalContentAlignment="Center"
+                            VerticalContentAlignment="Center"
+                            Content="{TemplateBinding Content}"
+                            ContentTemplate="{TemplateBinding ContentTemplate}" />
+        </Border>
+      </ControlTemplate>
+    </Setter>
+    <Style Selector="^:pointerover">
+      <Setter Property="Background" Value="{StaticResource TsAccentSoftBrush}" />
+      <Setter Property="BorderBrush" Value="{StaticResource TsBorderBrush}" />
+      <Setter Property="Foreground" Value="{StaticResource TsAccentHoverBrush}" />
+    </Style>
+    <Style Selector="^:pressed">
+      <Setter Property="Background" Value="{StaticResource TsBlue200}" />
+    </Style>
+  </ControlTheme>
+
+  <LinearGradientBrush x:Key="TsSidebarSelectedBrush" StartPoint="0%,0%" EndPoint="100%,100%">
+    <GradientStop Color="#60A5FA" Offset="0" />
+    <GradientStop Color="#2563EB" Offset="0.55" />
+    <GradientStop Color="#1E3A8A" Offset="1" />
+  </LinearGradientBrush>
+  <LinearGradientBrush x:Key="TsSidebarHoverBrush" StartPoint="0%,0%" EndPoint="100%,0%">
+    <GradientStop Color="#EFF6FF" Offset="0" />
+    <GradientStop Color="#DBEAFE" Offset="1" />
+  </LinearGradientBrush>
+  <LinearGradientBrush x:Key="TsSidebarSelectedHoverBrush" StartPoint="0%,0%" EndPoint="100%,100%">
+    <GradientStop Color="#93C5FD" Offset="0" />
+    <GradientStop Color="#3B82F6" Offset="0.5" />
+    <GradientStop Color="#1D4ED8" Offset="1" />
+  </LinearGradientBrush>
+
+  <!-- Sidebar nav item — full-bleed, gradient selected/hover -->
+  <ControlTheme x:Key="TsSidebarButton" TargetType="Button">
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="Foreground" Value="{StaticResource TsTextBrush}" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="CornerRadius" Value="0" />
+    <Setter Property="Padding" Value="18,12" />
+    <Setter Property="FontFamily" Value="{StaticResource TsFont}" />
+    <Setter Property="Cursor" Value="Hand" />
+    <Setter Property="HorizontalAlignment" Value="Stretch" />
+    <Setter Property="HorizontalContentAlignment" Value="Left" />
+    <Setter Property="Template">
+      <ControlTemplate>
+        <Border Background="{TemplateBinding Background}"
+                BorderThickness="0"
+                CornerRadius="0"
+                Padding="{TemplateBinding Padding}">
+          <ContentPresenter Content="{TemplateBinding Content}"
+                            ContentTemplate="{TemplateBinding ContentTemplate}"
+                            HorizontalContentAlignment="Left"
+                            VerticalContentAlignment="Center"
+                            TextBlock.Foreground="{TemplateBinding Foreground}" />
+        </Border>
+      </ControlTemplate>
+    </Setter>
+    <Style Selector="^:pointerover">
+      <Setter Property="Background" Value="{StaticResource TsSidebarHoverBrush}" />
+    </Style>
+    <Style Selector="^:pressed">
+      <Setter Property="Background" Value="{StaticResource TsSidebarHoverBrush}" />
+      <Setter Property="Opacity" Value="0.92" />
+    </Style>
+    <Style Selector="^.selected">
+      <Setter Property="Background" Value="{StaticResource TsSidebarSelectedBrush}" />
+      <Setter Property="Foreground" Value="White" />
+    </Style>
+    <Style Selector="^.selected:pointerover">
+      <Setter Property="Background" Value="{StaticResource TsSidebarSelectedHoverBrush}" />
+      <Setter Property="Foreground" Value="White" />
+    </Style>
+  </ControlTheme>
+
+  <!-- Caption close — white X on blue bar -->
+  <ControlTheme x:Key="TsCaptionCloseButton" TargetType="Button">
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="CornerRadius" Value="0" />
+    <Setter Property="Padding" Value="0" />
+    <Setter Property="Cursor" Value="Hand" />
+    <Setter Property="Template">
+      <ControlTemplate>
+        <Border Background="{TemplateBinding Background}"
+                BorderThickness="0"
+                CornerRadius="0">
+          <ContentPresenter Content="{TemplateBinding Content}"
+                            ContentTemplate="{TemplateBinding ContentTemplate}"
+                            HorizontalContentAlignment="Center"
+                            VerticalContentAlignment="Center" />
+        </Border>
+      </ControlTemplate>
+    </Setter>
+    <Style Selector="^:pointerover">
+      <Setter Property="Background" Value="#DC2626" />
+    </Style>
+    <Style Selector="^:pressed">
+      <Setter Property="Background" Value="#B91C1C" />
+    </Style>
+  </ControlTheme>
+
+  <!-- Circular photo picker -->
+  <ControlTheme x:Key="TsPhotoButton" TargetType="Button">
+    <Setter Property="Width" Value="96" />
+    <Setter Property="Height" Value="96" />
+    <Setter Property="Padding" Value="0" />
+    <Setter Property="Background" Value="{StaticResource TsAccentSoftBrush}" />
+    <Setter Property="BorderBrush" Value="{StaticResource TsAccentBrush}" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="CornerRadius" Value="9999" />
+    <Setter Property="Cursor" Value="Hand" />
+    <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+    <Setter Property="VerticalContentAlignment" Value="Stretch" />
+    <Setter Property="Template">
+      <ControlTemplate>
+        <Panel Width="{TemplateBinding Width}" Height="{TemplateBinding Height}">
+          <Ellipse Fill="{TemplateBinding Background}"
+                   Stroke="{TemplateBinding BorderBrush}"
+                   StrokeThickness="1" />
+          <Border Classes="ts-circle-avatar"
+                  Background="Transparent"
+                  ClipToBounds="True">
+            <ContentPresenter Content="{TemplateBinding Content}"
+                              ContentTemplate="{TemplateBinding ContentTemplate}"
+                              HorizontalContentAlignment="Stretch"
+                              VerticalContentAlignment="Stretch" />
+          </Border>
+        </Panel>
+      </ControlTemplate>
+    </Setter>
+    <Style Selector="^:pointerover /template/ Ellipse">
+      <Setter Property="Fill" Value="{StaticResource TsBlue200}" />
+      <Setter Property="Stroke" Value="{StaticResource TsAccentHoverBrush}" />
+    </Style>
+    <Style Selector="^:pressed">
+      <Setter Property="Opacity" Value="0.92" />
+    </Style>
+  </ControlTheme>
+
+  <!-- Plain clickable text — no box -->
+  <ControlTheme x:Key="TsLinkButton" TargetType="Button">
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="Foreground" Value="{StaticResource TsAccentBrush}" />
+    <Setter Property="BorderBrush" Value="Transparent" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="CornerRadius" Value="0" />
+    <Setter Property="Padding" Value="0" />
+    <Setter Property="FontFamily" Value="{StaticResource TsFont}" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="FontSize" Value="13" />
+    <Setter Property="Cursor" Value="Hand" />
+    <Setter Property="Template">
+      <ControlTemplate>
+        <ContentPresenter Background="Transparent"
+                          Content="{TemplateBinding Content}"
+                          ContentTemplate="{TemplateBinding ContentTemplate}"
+                          Foreground="{TemplateBinding Foreground}"
+                          HorizontalContentAlignment="Center"
+                          VerticalContentAlignment="Center"
+                          Padding="{TemplateBinding Padding}" />
+      </ControlTemplate>
+    </Setter>
+    <Style Selector="^:pointerover">
+      <Setter Property="Foreground" Value="{StaticResource TsAccentHoverBrush}" />
+    </Style>
+    <Style Selector="^:pressed">
+      <Setter Property="Opacity" Value="0.75" />
+    </Style>
+  </ControlTheme>
+
+  <!-- Outlined box / card -->
+  <ControlTheme x:Key="TsCardBorder" TargetType="Border">
+    <Setter Property="Background" Value="{StaticResource TsSurfaceBrush}" />
+    <Setter Property="BorderBrush" Value="{StaticResource TsBorderBrush}" />
+    <Setter Property="BorderThickness" Value="{StaticResource TsBorderThickness}" />
+    <Setter Property="CornerRadius" Value="0" />
+    <Setter Property="Padding" Value="16" />
+  </ControlTheme>
+
+  <!-- Text box -->
+  <ControlTheme x:Key="TsTextBox" TargetType="TextBox">
+    <Setter Property="FontFamily" Value="{StaticResource TsFont}" />
+    <Setter Property="Foreground" Value="{StaticResource TsTextBrush}" />
+    <Setter Property="Background" Value="{StaticResource TsSurfaceBrush}" />
+    <Setter Property="BorderBrush" Value="{StaticResource TsBorderBrush}" />
+    <Setter Property="BorderThickness" Value="{StaticResource TsBorderThickness}" />
+    <Setter Property="CornerRadius" Value="0" />
+    <Setter Property="Padding" Value="10,8" />
+    <Setter Property="MinHeight" Value="40" />
+    <Style Selector="^:focus /template/ Border#PART_BorderElement">
+      <Setter Property="BorderBrush" Value="{StaticResource TsBorderStrongBrush}" />
+      <Setter Property="CornerRadius" Value="0" />
+    </Style>
+  </ControlTheme>
+
+</ResourceDictionary>

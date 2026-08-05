@@ -14,9 +14,11 @@ public sealed class StaffAgentWorker(
     LocalAgentStore store,
     LifecycleApiClient lifecycleApi,
     SyncEngine syncEngine,
+    IOutboxQueue outbox,
     TrackingCoordinator tracking,
     ConfigRealtimeClient configClient,
-    UsbSessionController usb) : BackgroundService
+    UsbSessionController usb,
+    AppBrokenWatchdog appBroken) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -125,6 +127,20 @@ public sealed class StaffAgentWorker(
 
                 await tracking.TickAsync(stoppingToken);
 
+                try
+                {
+                    if (await appBroken.TickAsync(stoppingToken))
+                    {
+                        logger.LogWarning(
+                            "Install integrity incident under {Root}; app_broken enqueued",
+                            appBroken.InstallRoot);
+                    }
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    logger.LogWarning(ex, "App-broken watchdog tick failed");
+                }
+
                 var status = await syncEngine.ProbeAndRecordAsync(stoppingToken);
                 var bizNow = tracking.BusinessClock.Now();
                 logger.LogDebug(
@@ -175,6 +191,23 @@ public sealed class StaffAgentWorker(
             {
                 break;
             }
+        }
+
+        // Orderly stop only — enqueue power_off and best-effort flush before tearing down IO.
+        try
+        {
+            var state = store.Load();
+            await PowerOffEmitter.EmitAsync(
+                outbox,
+                syncEngine,
+                state.AccessToken,
+                PowerOffEmitter.ReasonServiceStop,
+                cancellationToken: CancellationToken.None);
+            logger.LogInformation("Enqueued power_off (service_stop)");
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Failed to enqueue power_off on stop");
         }
 
         await configClient.DisposeAsync();

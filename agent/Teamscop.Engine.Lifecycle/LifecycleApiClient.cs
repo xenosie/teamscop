@@ -149,16 +149,8 @@ public sealed class LifecycleApiClient : IDisposable
         await EnsureSuccess(resp, ct).ConfigureAwait(false);
     }
 
-    private static async Task EnsureSuccess(HttpResponseMessage response, CancellationToken ct)
-    {
-        if (response.IsSuccessStatusCode)
-        {
-            return;
-        }
-
-        var body = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
-        throw new HttpRequestException($"Lifecycle API {(int)response.StatusCode}: {body}");
-    }
+    private static Task EnsureSuccess(HttpResponseMessage response, CancellationToken ct)
+        => Teamscop.Engine.Auth.ApiClientException.ThrowIfUnsuccessfulAsync(response, "Lifecycle API", ct);
 
     public void Dispose()
     {

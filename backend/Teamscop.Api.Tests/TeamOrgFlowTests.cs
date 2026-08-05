@@ -57,6 +57,78 @@ public class TeamOrgFlowTests : IClassFixture<WebApplicationFactory<Program>>
         Assert.Equal("leader", place.RootElement.GetProperty("placement").GetString());
     }
 
+    [Fact]
+    public async Task CreateTeam_WithoutLeader_ThenClearAndSwitchLeader()
+    {
+        var (adminToken, companyToken) = await SignupAdminAsync("LeaderOps Co");
+        var (aId, _, _) = await SignupStaffAsync(companyToken, "Alice");
+        var (bId, _, _) = await SignupStaffAsync(companyToken, "Bob");
+        var (cId, _, _) = await SignupStaffAsync(companyToken, "Carol");
+
+        using var createReq = Authed(HttpMethod.Post, "/api/teams", adminToken);
+        createReq.Content = JsonContent.Create(new { name = "NoLeaderYet" });
+        var createResp = await _client.SendAsync(createReq);
+        var createBody = await createResp.Content.ReadAsStringAsync();
+        Assert.True(createResp.IsSuccessStatusCode, createBody);
+        using var createDoc = JsonDocument.Parse(createBody);
+        Assert.Equal(JsonValueKind.Null, createDoc.RootElement.GetProperty("leader").ValueKind);
+        var teamId = createDoc.RootElement.GetProperty("teamId").GetGuid();
+
+        using var setLeaderReq = Authed(HttpMethod.Put, $"/api/teams/{teamId}", adminToken);
+        setLeaderReq.Content = JsonContent.Create(new { leaderUserId = aId });
+        (await _client.SendAsync(setLeaderReq)).EnsureSuccessStatusCode();
+
+        using var memReq = Authed(HttpMethod.Put, $"/api/teams/{teamId}/members", adminToken);
+        memReq.Content = JsonContent.Create(new { memberUserIds = new[] { bId } });
+        (await _client.SendAsync(memReq)).EnsureSuccessStatusCode();
+
+        // Promote member B to leader (steal/clear A).
+        using var switchReq = Authed(HttpMethod.Put, $"/api/teams/{teamId}", adminToken);
+        switchReq.Content = JsonContent.Create(new { leaderUserId = bId });
+        var switchResp = await _client.SendAsync(switchReq);
+        var switchBody = await switchResp.Content.ReadAsStringAsync();
+        Assert.True(switchResp.IsSuccessStatusCode, switchBody);
+        using var switchDoc = JsonDocument.Parse(switchBody);
+        Assert.Equal(bId, switchDoc.RootElement.GetProperty("leader").GetProperty("userId").GetGuid());
+        Assert.DoesNotContain(
+            switchDoc.RootElement.GetProperty("members").EnumerateArray(),
+            e => e.GetProperty("userId").GetGuid() == bId);
+
+        // Steal leader from another team: C leads Team2, then becomes leader of Team1.
+        using var create2 = Authed(HttpMethod.Post, "/api/teams", adminToken);
+        create2.Content = JsonContent.Create(new { name = "OtherTeam", leaderUserId = cId });
+        var t2Resp = await _client.SendAsync(create2);
+        t2Resp.EnsureSuccessStatusCode();
+        var team2Id = JsonDocument.Parse(await t2Resp.Content.ReadAsStringAsync())
+            .RootElement.GetProperty("teamId").GetGuid();
+
+        using var steal = Authed(HttpMethod.Put, $"/api/teams/{teamId}", adminToken);
+        steal.Content = JsonContent.Create(new { leaderUserId = cId });
+        (await _client.SendAsync(steal)).EnsureSuccessStatusCode();
+
+        using var orgReq = Authed(HttpMethod.Get, "/api/org/structure", adminToken);
+        var org = JsonDocument.Parse(await (await _client.SendAsync(orgReq)).Content.ReadAsStringAsync());
+        var teams = org.RootElement.GetProperty("teams").EnumerateArray().ToList();
+        var t1 = Assert.Single(teams, t => t.GetProperty("teamId").GetGuid() == teamId);
+        var t2 = Assert.Single(teams, t => t.GetProperty("teamId").GetGuid() == team2Id);
+        Assert.Equal(cId, t1.GetProperty("leader").GetProperty("userId").GetGuid());
+        Assert.Equal(JsonValueKind.Null, t2.GetProperty("leader").ValueKind);
+
+        using var clearReq = Authed(HttpMethod.Put, $"/api/teams/{teamId}", adminToken);
+        clearReq.Content = JsonContent.Create(new { clearLeader = true });
+        var clearResp = await _client.SendAsync(clearReq);
+        clearResp.EnsureSuccessStatusCode();
+        using var clearDoc = JsonDocument.Parse(await clearResp.Content.ReadAsStringAsync());
+        Assert.Equal(JsonValueKind.Null, clearDoc.RootElement.GetProperty("leader").ValueKind);
+
+        using var orgAfterClear = Authed(HttpMethod.Get, "/api/org/structure", adminToken);
+        var pool = JsonDocument.Parse(await (await _client.SendAsync(orgAfterClear)).Content.ReadAsStringAsync());
+        Assert.Contains(pool.RootElement.GetProperty("unassignedStaff").EnumerateArray(),
+            e => e.GetProperty("userId").GetGuid() == aId);
+        Assert.Contains(pool.RootElement.GetProperty("unassignedStaff").EnumerateArray(),
+            e => e.GetProperty("userId").GetGuid() == cId);
+    }
+
     private async Task<(string AccessToken, string CompanyToken)> SignupAdminAsync(string name)
     {
         var device = Guid.NewGuid().ToString("N") + Guid.NewGuid().ToString("N");

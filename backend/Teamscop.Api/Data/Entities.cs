@@ -163,12 +163,12 @@ public sealed class Team
     public Guid Id { get; set; }
     public Guid CompanyId { get; set; }
     public required string Name { get; set; }
-    public Guid LeaderUserId { get; set; }
+    public Guid? LeaderUserId { get; set; }
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
 
     public Company Company { get; set; } = null!;
-    public UserAccount Leader { get; set; } = null!;
+    public UserAccount? Leader { get; set; }
     public List<TeamMember> Members { get; set; } = [];
 }
 

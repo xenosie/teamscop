@@ -8,3 +8,7 @@
 appsettings.*.local.json
 .env
 *.pfx
+
+# local UI preview artifacts
+/avalonia-smoke*.png
+/tmp/teamscop-ui-preview/

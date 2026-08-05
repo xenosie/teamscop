@@ -68,4 +68,57 @@ public class IngestFlowTests : IClassFixture<WebApplicationFactory<Program>>
         using var r2 = JsonDocument.Parse(body2);
         Assert.Equal(1, r2.RootElement.GetProperty("duplicateIds").GetArrayLength());
     }
+
+    [Fact]
+    public async Task IngestBatch_Skips_Poison_Items_Without_Failing_Batch()
+    {
+        var client = _factory.CreateClient();
+        var device = Guid.NewGuid().ToString("N") + Guid.NewGuid().ToString("N");
+        using var form = new MultipartFormDataContent
+        {
+            { new StringContent(device), "deviceKey" },
+            { new StringContent("PoisonCo"), "username" },
+            { new StringContent("password123"), "password" }
+        };
+        var signup = await client.PostAsync("/api/auth/admin/signup", form);
+        signup.EnsureSuccessStatusCode();
+        using var doc = JsonDocument.Parse(await signup.Content.ReadAsStringAsync());
+        var token = doc.RootElement.GetProperty("accessToken").GetString()!;
+
+        var goodId = Guid.NewGuid();
+        var badId = Guid.NewGuid();
+        var batch = new IngestBatchRequest
+        {
+            Events =
+            [
+                new IngestEventDto
+                {
+                    ClientEventId = badId,
+                    EventType = "not_a_real_type",
+                    OccurredAt = DateTimeOffset.UtcNow,
+                    PayloadJson = "{}"
+                },
+                new IngestEventDto
+                {
+                    ClientEventId = goodId,
+                    EventType = AgentEventTypes.Heartbeat,
+                    OccurredAt = DateTimeOffset.UtcNow,
+                    PayloadJson = "{}"
+                }
+            ]
+        };
+
+        using var req = new HttpRequestMessage(HttpMethod.Post, "/api/ingest/batch")
+        {
+            Content = JsonContent.Create(batch)
+        };
+        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        var resp = await client.SendAsync(req);
+        var body = await resp.Content.ReadAsStringAsync();
+        Assert.True(resp.IsSuccessStatusCode, body);
+        using var r = JsonDocument.Parse(body);
+        Assert.Equal(1, r.RootElement.GetProperty("acceptedIds").GetArrayLength());
+        Assert.Equal(1, r.RootElement.GetProperty("rejected").GetArrayLength());
+        Assert.Equal(badId.ToString(), r.RootElement.GetProperty("rejected")[0].GetProperty("clientEventId").GetGuid().ToString());
+    }
 }

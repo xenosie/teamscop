@@ -1,0 +1,98 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="Teamscop.App.Controls.TsSpinner"
+             Width="50" Height="50">
+  <UserControl.Styles>
+    <Style Selector="Border.sq">
+      <Setter Property="Width" Value="10" />
+      <Setter Property="Height" Value="10" />
+      <Setter Property="Background" Value="{StaticResource TsAccentBrush}" />
+      <Setter Property="CornerRadius" Value="0" />
+      <Setter Property="Opacity" Value="0" />
+    </Style>
+    <Style Selector="Border.sq0">
+      <Style.Animations>
+        <Animation Duration="0:0:0.675" IterationCount="Infinite" PlaybackDirection="Alternate" Easing="CubicEaseInOut">
+          <KeyFrame Cue="0%"><Setter Property="Opacity" Value="0" /></KeyFrame>
+          <KeyFrame Cue="100%"><Setter Property="Opacity" Value="1" /></KeyFrame>
+        </Animation>
+      </Style.Animations>
+    </Style>
+    <Style Selector="Border.sq1">
+      <Style.Animations>
+        <Animation Duration="0:0:0.675" IterationCount="Infinite" PlaybackDirection="Alternate" Easing="CubicEaseInOut" Delay="0:0:0.075">
+          <KeyFrame Cue="0%"><Setter Property="Opacity" Value="0" /></KeyFrame>
+          <KeyFrame Cue="100%"><Setter Property="Opacity" Value="1" /></KeyFrame>
+        </Animation>
+      </Style.Animations>
+    </Style>
+    <Style Selector="Border.sq2">
+      <Style.Animations>
+        <Animation Duration="0:0:0.675" IterationCount="Infinite" PlaybackDirection="Alternate" Easing="CubicEaseInOut" Delay="0:0:0.150">
+          <KeyFrame Cue="0%"><Setter Property="Opacity" Value="0" /></KeyFrame>
+          <KeyFrame Cue="100%"><Setter Property="Opacity" Value="1" /></KeyFrame>
+        </Animation>
+      </Style.Animations>
+    </Style>
+    <Style Selector="Border.sq3">
+      <Style.Animations>
+        <Animation Duration="0:0:0.675" IterationCount="Infinite" PlaybackDirection="Alternate" Easing="CubicEaseInOut" Delay="0:0:0.225">
+          <KeyFrame Cue="0%"><Setter Property="Opacity" Value="0" /></KeyFrame>
+          <KeyFrame Cue="100%"><Setter Property="Opacity" Value="1" /></KeyFrame>
+        </Animation>
+      </Style.Animations>
+    </Style>
+    <Style Selector="Border.sq4">
+      <Style.Animations>
+        <Animation Duration="0:0:0.675" IterationCount="Infinite" PlaybackDirection="Alternate" Easing="CubicEaseInOut" Delay="0:0:0.300">
+          <KeyFrame Cue="0%"><Setter Property="Opacity" Value="0" /></KeyFrame>
+          <KeyFrame Cue="100%"><Setter Property="Opacity" Value="1" /></KeyFrame>
+        </Animation>
+      </Style.Animations>
+    </Style>
+    <Style Selector="Border.sq5">
+      <Style.Animations>
+        <Animation Duration="0:0:0.675" IterationCount="Infinite" PlaybackDirection="Alternate" Easing="CubicEaseInOut" Delay="0:0:0.375">
+          <KeyFrame Cue="0%"><Setter Property="Opacity" Value="0" /></KeyFrame>
+          <KeyFrame Cue="100%"><Setter Property="Opacity" Value="1" /></KeyFrame>
+        </Animation>
+      </Style.Animations>
+    </Style>
+    <Style Selector="Border.sq6">
+      <Style.Animations>
+        <Animation Duration="0:0:0.675" IterationCount="Infinite" PlaybackDirection="Alternate" Easing="CubicEaseInOut" Delay="0:0:0.450">
+          <KeyFrame Cue="0%"><Setter Property="Opacity" Value="0" /></KeyFrame>
+          <KeyFrame Cue="100%"><Setter Property="Opacity" Value="1" /></KeyFrame>
+        </Animation>
+      </Style.Animations>
+    </Style>
+    <Style Selector="Border.sq7">
+      <Style.Animations>
+        <Animation Duration="0:0:0.675" IterationCount="Infinite" PlaybackDirection="Alternate" Easing="CubicEaseInOut" Delay="0:0:0.525">
+          <KeyFrame Cue="0%"><Setter Property="Opacity" Value="0" /></KeyFrame>
+          <KeyFrame Cue="100%"><Setter Property="Opacity" Value="1" /></KeyFrame>
+        </Animation>
+      </Style.Animations>
+    </Style>
+    <Style Selector="Border.sq8">
+      <Style.Animations>
+        <Animation Duration="0:0:0.675" IterationCount="Infinite" PlaybackDirection="Alternate" Easing="CubicEaseInOut" Delay="0:0:0.600">
+          <KeyFrame Cue="0%"><Setter Property="Opacity" Value="0" /></KeyFrame>
+          <KeyFrame Cue="100%"><Setter Property="Opacity" Value="1" /></KeyFrame>
+        </Animation>
+      </Style.Animations>
+    </Style>
+  </UserControl.Styles>
+
+  <Canvas Width="50" Height="50">
+    <Border Classes="sq sq0" Canvas.Left="0" Canvas.Top="0" />
+    <Border Classes="sq sq1" Canvas.Left="20" Canvas.Top="0" />
+    <Border Classes="sq sq2" Canvas.Left="40" Canvas.Top="0" />
+    <Border Classes="sq sq3" Canvas.Left="0" Canvas.Top="20" />
+    <Border Classes="sq sq4" Canvas.Left="20" Canvas.Top="20" />
+    <Border Classes="sq sq5" Canvas.Left="40" Canvas.Top="20" />
+    <Border Classes="sq sq6" Canvas.Left="0" Canvas.Top="40" />
+    <Border Classes="sq sq7" Canvas.Left="20" Canvas.Top="40" />
+    <Border Classes="sq sq8" Canvas.Left="40" Canvas.Top="40" />
+  </Canvas>
+</UserControl>

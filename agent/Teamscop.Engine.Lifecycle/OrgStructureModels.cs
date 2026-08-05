@@ -13,7 +13,7 @@ public sealed class TeamDto
 {
     public Guid TeamId { get; set; }
     public string Name { get; set; } = "";
-    public OrgStaffDto Leader { get; set; } = new();
+    public OrgStaffDto? Leader { get; set; }
     public List<OrgStaffDto> Members { get; set; } = [];
     public DateTimeOffset UpdatedAt { get; set; }
 }

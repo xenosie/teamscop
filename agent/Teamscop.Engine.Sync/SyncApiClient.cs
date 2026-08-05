@@ -53,11 +53,9 @@ public sealed class SyncApiClient : ISyncApiClient, IDisposable
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
 
         using var response = await _http.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        await Teamscop.Engine.Auth.ApiClientException.ThrowIfUnsuccessfulAsync(
+            response, "Ingest API", cancellationToken).ConfigureAwait(false);
         var raw = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-        if (!response.IsSuccessStatusCode)
-        {
-            throw new HttpRequestException($"Ingest failed {(int)response.StatusCode}: {raw}");
-        }
 
         return JsonSerializer.Deserialize<IngestBatchResponse>(raw, JsonOptions)
                ?? throw new InvalidOperationException("Empty ingest response.");

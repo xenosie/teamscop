@@ -6,8 +6,8 @@ using Teamscop.Engine.Lifecycle;
 
 namespace Teamscop.Api.Services;
 
-public sealed record CreateTeamRequest(string Name, Guid LeaderUserId);
-public sealed record UpdateTeamRequest(string? Name, Guid? LeaderUserId);
+public sealed record CreateTeamRequest(string Name, Guid? LeaderUserId = null);
+public sealed record UpdateTeamRequest(string? Name, Guid? LeaderUserId = null, bool ClearLeader = false);
 public sealed record SetMembersRequest(IReadOnlyList<Guid> MemberUserIds);
 public sealed record AddMemberRequest(Guid StaffUserId);
 
@@ -99,15 +99,21 @@ public sealed class TeamService(
         var name = NormalizeName(request.Name);
         await EnsureUniqueTeamNameAsync(admin.CompanyId, name, excludeTeamId: null, ct);
 
-        var leader = await RequireCompanyStaffAsync(admin.CompanyId, request.LeaderUserId, ct);
-        await EnsureCanBecomeLeaderAsync(leader.Id, ct);
+        Guid? leaderId = null;
+        if (request.LeaderUserId is Guid requestedLeader)
+        {
+            var leader = await RequireCompanyStaffAsync(admin.CompanyId, requestedLeader, ct);
+            await ClearMembershipAsync(leader.Id, ct);
+            await ClearLeadershipExceptAsync(leader.Id, excludeTeamId: null, ct);
+            leaderId = leader.Id;
+        }
 
         var team = new Team
         {
             Id = Guid.NewGuid(),
             CompanyId = admin.CompanyId,
             Name = name,
-            LeaderUserId = leader.Id,
+            LeaderUserId = leaderId,
             CreatedAt = DateTimeOffset.UtcNow,
             UpdatedAt = DateTimeOffset.UtcNow
         };
@@ -129,12 +135,16 @@ public sealed class TeamService(
             team.Name = name;
         }
 
-        if (request.LeaderUserId is Guid newLeaderId && newLeaderId != team.LeaderUserId)
+        if (request.ClearLeader)
+        {
+            team.LeaderUserId = null;
+        }
+        else if (request.LeaderUserId is Guid newLeaderId && newLeaderId != team.LeaderUserId)
         {
             var leader = await RequireCompanyStaffAsync(admin.CompanyId, newLeaderId, ct);
-            // Promote: leave any membership first (leaders are never members — rule 2A).
-            await db.TeamMembers.Where(m => m.StaffUserId == leader.Id).ExecuteDeleteAsync(ct);
-            await EnsureCanBecomeLeaderAsync(leader.Id, ct);
+            // Promote / steal: leave any membership; clear leadership on other teams.
+            await ClearMembershipAsync(leader.Id, ct);
+            await ClearLeadershipExceptAsync(leader.Id, excludeTeamId: team.Id, ct);
             team.LeaderUserId = leader.Id;
         }
 
@@ -161,7 +171,7 @@ public sealed class TeamService(
             ?? throw new InvalidOperationException("Team not found.");
 
         var desired = (request.MemberUserIds ?? []).Distinct().ToList();
-        if (desired.Contains(team.LeaderUserId))
+        if (team.LeaderUserId is Guid leaderId && desired.Contains(leaderId))
         {
             throw new InvalidOperationException("Team leader cannot also be a team member.");
         }
@@ -193,13 +203,21 @@ public sealed class TeamService(
         var admin = await RequireTeamManagerAsync(adminUserId, ct);
         var team = await db.Teams.FirstOrDefaultAsync(t => t.Id == teamId && t.CompanyId == admin.CompanyId, ct)
             ?? throw new InvalidOperationException("Team not found.");
-        if (staffUserId == team.LeaderUserId)
+        if (team.LeaderUserId == staffUserId)
         {
             throw new InvalidOperationException("Team leader cannot also be a team member.");
         }
 
         await RequireCompanyStaffAsync(admin.CompanyId, staffUserId, ct);
-        await EnsureCanBecomeMemberAsync(staffUserId, excludeTeamId: null, ct);
+
+        // If they lead another/this team as leader elsewhere, clear that leadership first.
+        await ClearLeadershipExceptAsync(staffUserId, excludeTeamId: null, ct);
+
+        // Leave any other membership first.
+        await db.TeamMembers.Where(m => m.StaffUserId == staffUserId && m.TeamId != teamId)
+            .ExecuteDeleteAsync(ct);
+
+        await EnsureCanBecomeMemberAsync(staffUserId, excludeTeamId: teamId, ct);
 
         if (!await db.TeamMembers.AnyAsync(m => m.TeamId == teamId && m.StaffUserId == staffUserId, ct))
         {
@@ -271,7 +289,9 @@ public sealed class TeamService(
             .OrderBy(t => t.Name)
             .ToListAsync(ct);
 
-        var assigned = teams.Select(t => t.LeaderUserId)
+        var assigned = teams
+            .Where(t => t.LeaderUserId.HasValue)
+            .Select(t => t.LeaderUserId!.Value)
             .Concat(teams.SelectMany(t => t.Members.Select(m => m.StaffUserId)))
             .ToHashSet();
 
@@ -304,7 +324,7 @@ public sealed class TeamService(
     {
         TeamId = team.Id,
         Name = team.Name,
-        Leader = ToStaffDto(team.Leader),
+        Leader = team.Leader is null ? null : ToStaffDto(team.Leader),
         Members = team.Members.Select(m => ToStaffDto(m.StaffUser)).OrderBy(m => m.Username).ToList(),
         UpdatedAt = team.UpdatedAt
     };
@@ -317,6 +337,27 @@ public sealed class TeamService(
         Online = u.LastOnline,
         LastSeenAt = u.LastSeenAt
     };
+
+    private async Task ClearMembershipAsync(Guid staffUserId, CancellationToken ct)
+    {
+        var memberships = await db.TeamMembers.Where(m => m.StaffUserId == staffUserId).ToListAsync(ct);
+        if (memberships.Count > 0)
+        {
+            db.TeamMembers.RemoveRange(memberships);
+        }
+    }
+
+    private async Task ClearLeadershipExceptAsync(Guid staffUserId, Guid? excludeTeamId, CancellationToken ct)
+    {
+        var led = await db.Teams
+            .Where(t => t.LeaderUserId == staffUserId && (excludeTeamId == null || t.Id != excludeTeamId))
+            .ToListAsync(ct);
+        foreach (var t in led)
+        {
+            t.LeaderUserId = null;
+            t.UpdatedAt = DateTimeOffset.UtcNow;
+        }
+    }
 
     private async Task EnsureCanBecomeLeaderAsync(Guid staffUserId, CancellationToken ct)
     {

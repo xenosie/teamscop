@@ -75,7 +75,8 @@ public class SyncEngineTests
             => Task.FromResult(new IngestBatchResponse
             {
                 AcceptedIds = items.Select(i => i.ClientEventId).ToList(),
-                DuplicateIds = []
+                DuplicateIds = [],
+                Rejected = []
             });
     }
 }

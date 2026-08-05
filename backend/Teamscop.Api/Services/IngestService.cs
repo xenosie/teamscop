@@ -20,14 +20,18 @@ public sealed class IngestService(AppDbContext db) : IIngestService
         AgentEventTypes.ScreenshotMeta,
         AgentEventTypes.BrowserHistory,
         AgentEventTypes.UsbEvent,
-        AgentEventTypes.VaultAlert
+        AgentEventTypes.VaultAlert,
+        AgentEventTypes.Registration,
+        AgentEventTypes.PowerOff,
+        AgentEventTypes.Uninstall,
+        AgentEventTypes.AppBroken
     ];
 
     public async Task<IngestBatchResponse> IngestBatchAsync(Guid userId, IngestBatchRequest request, CancellationToken ct)
     {
         if (request.Events is null || request.Events.Count == 0)
         {
-            return new IngestBatchResponse { AcceptedIds = [], DuplicateIds = [] };
+            return new IngestBatchResponse { AcceptedIds = [], DuplicateIds = [], Rejected = [] };
         }
 
         if (request.Events.Count > 200)
@@ -54,6 +58,7 @@ public sealed class IngestService(AppDbContext db) : IIngestService
 
         var accepted = new List<Guid>();
         var duplicates = new List<Guid>();
+        var rejected = new List<IngestRejectedItem>();
 
         foreach (var evt in request.Events.OrderBy(e => e.OccurredAt))
         {
@@ -65,12 +70,22 @@ public sealed class IngestService(AppDbContext db) : IIngestService
 
             if (string.IsNullOrWhiteSpace(evt.EventType) || !AllowedTypes.Contains(evt.EventType))
             {
-                throw new InvalidOperationException($"Unsupported event type: {evt.EventType}");
+                rejected.Add(new IngestRejectedItem
+                {
+                    ClientEventId = evt.ClientEventId,
+                    Reason = $"Unsupported event type: {evt.EventType}"
+                });
+                continue;
             }
 
-            if (evt.PayloadJson.Length > 2_000_000)
+            if (evt.PayloadJson is null || evt.PayloadJson.Length > 2_000_000)
             {
-                throw new InvalidOperationException("Payload too large.");
+                rejected.Add(new IngestRejectedItem
+                {
+                    ClientEventId = evt.ClientEventId,
+                    Reason = "Payload too large or missing."
+                });
+                continue;
             }
 
             try
@@ -79,7 +94,12 @@ public sealed class IngestService(AppDbContext db) : IIngestService
             }
             catch (JsonException)
             {
-                throw new InvalidOperationException($"Invalid payloadJson for {evt.ClientEventId}");
+                rejected.Add(new IngestRejectedItem
+                {
+                    ClientEventId = evt.ClientEventId,
+                    Reason = "Invalid payloadJson."
+                });
+                continue;
             }
 
             long? vaultSeq = null;
@@ -196,6 +216,11 @@ public sealed class IngestService(AppDbContext db) : IIngestService
         }
 
         await db.SaveChangesAsync(ct);
-        return new IngestBatchResponse { AcceptedIds = accepted, DuplicateIds = duplicates.Distinct().ToList() };
+        return new IngestBatchResponse
+        {
+            AcceptedIds = accepted,
+            DuplicateIds = duplicates.Distinct().ToList(),
+            Rejected = rejected
+        };
     }
 }

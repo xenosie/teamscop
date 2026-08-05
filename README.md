@@ -1,29 +1,29 @@
 # Teamscop
 
-Windows agent + ASP.NET Core API. This repository currently ships the **Auth Engine**.
+Windows monitoring agent + ASP.NET Core API + Avalonia admin desktop.
+
+**Status matrix:** [`docs/STATUS.md`](docs/STATUS.md) (what is Spec / Engine / API / App / Tests).
 
 ## Stack
 
+- Avalonia admin UI: `agent/Teamscop.App`
 - Auth engine: `agent/Teamscop.Engine.Auth`
 - Lifecycle engine: `agent/Teamscop.Engine.Lifecycle`
 - Sync engine: `agent/Teamscop.Engine.Sync`
 - Tracking engine: `agent/Teamscop.Engine.Tracking` (time/screenshot/Chrome + secure vault)
 - USB engine: `agent/Teamscop.Engine.Usb` (mass-storage block + session TOTP unlock)
 - Staff Windows Service: `agent/Teamscop.StaffService`
-- Admin host: `agent/Teamscop.AdminHost` (per-staff TOTP key generator)
+- Admin host (console): `agent/Teamscop.AdminHost` (TOTP, teams, police CLI)
 - USB approval sticker: `agent/Teamscop.UsbApproval`
 - Uninstall TOTP guard: `agent/Teamscop.UninstallGuard`
 - API: `backend/Teamscop.Api` (.NET 8 + PostgreSQL)
 - Deploy: `deploy/`
-- Phase-2 policy: [`docs/PHASE2_LIFECYCLE.md`](docs/PHASE2_LIFECYCLE.md)
-- Phase-3 sync: [`docs/PHASE3_SYNC.md`](docs/PHASE3_SYNC.md)
-- Phase-4 tracking: [`docs/PHASE4_TRACKING.md`](docs/PHASE4_TRACKING.md)
-- Phase-5 business time: [`docs/PHASE5_BUSINESS_TIME.md`](docs/PHASE5_BUSINESS_TIME.md)
-- Phase-6 USB: [`docs/PHASE6_USB.md`](docs/PHASE6_USB.md)
-- Phase-7 teams: [`docs/PHASE7_TEAMS.md`](docs/PHASE7_TEAMS.md)
-- Phase-8 authorities: [`docs/PHASE8_AUTHORITIES.md`](docs/PHASE8_AUTHORITIES.md)
+- Phases: [PHASE1](docs/PHASE1_AUTH.md) · [2](docs/PHASE2_LIFECYCLE.md) · [3](docs/PHASE3_SYNC.md) · [4](docs/PHASE4_TRACKING.md) · [5](docs/PHASE5_BUSINESS_TIME.md) · [6](docs/PHASE6_USB.md) · [7](docs/PHASE7_TEAMS.md) · [8](docs/PHASE8_AUTHORITIES.md) · [9 App history](docs/PHASE9_APP_HISTORY.md)
+- UI preview (VPS/CRD): [`docs/UI_DEV_PREVIEW.md`](docs/UI_DEV_PREVIEW.md)
 
 ## Auth model
+
+See [`docs/PHASE1_AUTH.md`](docs/PHASE1_AUTH.md).
 
 - Identity = hardware-bound `deviceKey` (not email)
 - Admin signup creates a company and returns an offline encrypted `companyToken` (`TS1.…`)

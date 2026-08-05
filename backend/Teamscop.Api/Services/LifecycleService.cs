@@ -1,8 +1,10 @@
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Teamscop.Api.Data;
 using Teamscop.Engine.Lifecycle;
+using Teamscop.Engine.Sync;
 
 namespace Teamscop.Api.Services;
 
@@ -134,6 +136,27 @@ public sealed class LifecycleService(AppDbContext db, IAuthorityService authorit
         }
 
         entity.Consumed = true;
+        if (entity.DeviceUserId is Guid staffUserId)
+        {
+            var now = DateTimeOffset.UtcNow;
+            db.AgentEvents.Add(new AgentEvent
+            {
+                Id = Guid.NewGuid(),
+                CompanyId = entity.CompanyId,
+                UserId = staffUserId,
+                ClientEventId = Guid.NewGuid(),
+                EventType = AgentEventTypes.Uninstall,
+                OccurredAt = now,
+                ReceivedAt = now,
+                PayloadJson = JsonSerializer.Serialize(new
+                {
+                    kind = AgentEventTypes.Uninstall,
+                    ticketId = entity.Id,
+                    consumedAt = now
+                })
+            });
+        }
+
         await db.SaveChangesAsync(ct);
         return true;
     }

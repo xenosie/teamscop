@@ -269,7 +269,7 @@ namespace Teamscop.Api.Data.Migrations
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
-                    b.Property<Guid>("LeaderUserId")
+                    b.Property<Guid?>("LeaderUserId")
                         .HasColumnType("uuid");
 
                     b.Property<string>("Name")
@@ -543,8 +543,7 @@ namespace Teamscop.Api.Data.Migrations
                     b.HasOne("Teamscop.Api.Data.UserAccount", "Leader")
                         .WithMany()
                         .HasForeignKey("LeaderUserId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
+                        .OnDelete(DeleteBehavior.Restrict);
 
                     b.Navigation("Company");
 

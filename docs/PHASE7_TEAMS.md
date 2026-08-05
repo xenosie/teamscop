@@ -3,39 +3,48 @@
 ## Rules (locked)
 
 | Rule | Behavior |
-|---|---|
-| Teams inside company | Admin creates/renames/deletes teams anytime |
-| One Team Leader | Exactly one staff leader per team; a person leads at most one team |
-| Members | Any number of staff members; each staff in **at most one** team |
+|------|----------|
+| Teams inside company | Admin (or `team_management` package) creates/renames/deletes teams anytime |
+| Team leader | At most one staff leader per team; **leader slot may be empty**; a person leads at most one team |
+| Members | Any number of staff; each staff in **at most one** team |
 | Leaders ≠ members | Leaders are not members of any team |
-| Leader visibility | **None by default** (Phase 8: all viewing goes through authority packages / Policemen) |
-| Immediate | Every structure change bumps `OrgStructureVersion` and SignalR `OrgStructureUpdated` to the company group |
+| Tracking visibility | **Not** granted by being a team leader — see [PHASE8_AUTHORITIES.md](PHASE8_AUTHORITIES.md) |
+| Immediate | Structure changes bump `OrgStructureVersion` and SignalR `OrgStructureUpdated` |
 
 ## Model
 
 ```
 Company
-  └── Team (name, leaderUserId unique)
+  └── Team (name, leaderUserId? nullable unique)
         └── TeamMember[] (staffUserId unique across all teams)
 ```
+
+Unassigned staff = neither leader nor member of any team.
 
 ## API
 
 | Method | Path | Who |
-|---|---|---|
-| GET | `/api/org/structure` | Admin — full tree |
+|--------|------|-----|
+| GET | `/api/org/structure` | `team_management` (admin has all packages) |
 | GET | `/api/org/me` | Anyone — placement (`leader` / `member` / `unassigned` / `admin`) |
-| POST | `/api/teams` | Admin — `{ name, leaderUserId }` |
-| PUT | `/api/teams/{id}` | Admin — `{ name?, leaderUserId? }` |
-| DELETE | `/api/teams/{id}` | Admin |
-| PUT | `/api/teams/{id}/members` | Admin — replace `{ memberUserIds: [] }` |
-| POST/DELETE | `/api/teams/{id}/members[/{staffUserId}]` | Admin |
-| GET | `/api/tracking/staff` | Admin = all staff; Leader = members |
-| GET | `/api/tracking/events?staffUserId=` | Admin or that member’s leader |
-| GET | `/api/tracking/config/{staffUserId}` | Admin or that member’s leader (read) |
+| POST | `/api/teams` | `{ name, leaderUserId? }` |
+| PUT | `/api/teams/{id}` | `{ name?, leaderUserId?, clearLeader? }` |
+| DELETE | `/api/teams/{id}` | — |
+| PUT | `/api/teams/{id}/members` | replace `{ memberUserIds: [] }` |
+| POST/DELETE | `/api/teams/{id}/members[/{staffUserId}]` | — |
 
 Hub: `/hubs/config` → `OrgStructureUpdated` (company group)
 
-## AdminHost
+Staff/event listing for monitoring is **not** defined here — use PHASE8 + `/api/tracking/*`.
 
-`org` · `team-create` · `team-rename` · `team-leader` · `team-members` · `team-add` · `team-remove` · `team-delete`
+## Clients
+
+| Client | Role |
+|--------|------|
+| **Avalonia App** (`TeamsBoardView`) | Visual team board: add/switch leader, add/remove members, pool modal |
+| **AdminHost** CLI | `org` · `team-create` · `team-rename` · `team-leader` · `team-members` · `team-add` · `team-remove` · `team-delete` |
+
+## See also
+
+- [PHASE8_AUTHORITIES.md](PHASE8_AUTHORITIES.md)
+- [STATUS.md](STATUS.md)

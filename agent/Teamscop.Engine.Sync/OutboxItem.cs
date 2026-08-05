@@ -11,6 +11,11 @@ public static class AgentEventTypes
     public const string BrowserHistory = "browser_history";
     public const string UsbEvent = "usb_event";
     public const string VaultAlert = "vault_alert";
+    // Phase 9 — App history (lifecycle)
+    public const string Registration = "registration";
+    public const string PowerOff = "power_off";
+    public const string Uninstall = "uninstall";
+    public const string AppBroken = "app_broken";
 }
 
 public sealed class OutboxItem
@@ -45,8 +50,15 @@ public sealed class IngestEventDto
     public required string PayloadJson { get; init; }
 }
 
+public sealed class IngestRejectedItem
+{
+    public Guid ClientEventId { get; init; }
+    public string Reason { get; init; } = "";
+}
+
 public sealed class IngestBatchResponse
 {
     public required IReadOnlyList<Guid> AcceptedIds { get; init; }
     public required IReadOnlyList<Guid> DuplicateIds { get; init; }
+    public IReadOnlyList<IngestRejectedItem> Rejected { get; init; } = [];
 }

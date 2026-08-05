@@ -1,0 +1,70 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="clr-namespace:Teamscop.App.ViewModels"
+        xmlns:controls="clr-namespace:Teamscop.App.Controls"
+        xmlns:heroIcons="clr-namespace:HeroIconsAvalonia.Controls;assembly=HeroIconsAvalonia"
+        x:Class="Teamscop.App.Views.AddMemberDialog"
+        Title="Add member"
+        Icon="/Assets/teamscop-icon.ico"
+        Width="360" Height="480"
+        WindowStartupLocation="CenterOwner"
+        CanResize="False"
+        SystemDecorations="None"
+        ExtendClientAreaToDecorationsHint="True"
+        ExtendClientAreaChromeHints="NoChrome"
+        Background="{StaticResource TsSurfaceBrush}"
+        BorderBrush="{StaticResource TsAccentBrush}"
+        BorderThickness="1">
+  <DockPanel>
+    <controls:TsTitleBar DockPanel.Dock="Top" Name="TitleBar" Title="Add member" />
+    <StackPanel DockPanel.Dock="Bottom" Margin="16" Spacing="10">
+      <TextBlock Name="EmptyText"
+                 Text="No staff left in the pool."
+                 Classes="ts-muted"
+                 FontSize="12"
+                 IsVisible="False" />
+      <Button Classes="ts-toolbar"
+              Content="Cancel"
+              Name="BtnCancel"
+              HorizontalAlignment="Stretch"
+              Height="40" />
+    </StackPanel>
+    <ScrollViewer Classes="ts-transparent-scroll"
+                  Margin="8,8,8,0"
+                  VerticalScrollBarVisibility="Auto">
+      <ItemsControl Name="StaffList">
+        <ItemsControl.ItemTemplate>
+          <DataTemplate x:DataType="vm:StaffCardViewModel">
+            <Button Classes="ts-sidebar"
+                    HorizontalAlignment="Stretch"
+                    Tag="{Binding}"
+                    Click="OnPickClick">
+              <Grid ColumnDefinitions="Auto,*">
+                <Border Width="32" Height="32"
+                        Classes="ts-circle-avatar"
+                        ClipToBounds="True"
+                        Background="{StaticResource TsAccentSoftBrush}">
+                  <Panel>
+                    <heroIcons:HeroIcon Type="User" Kind="Outline" Width="14" Height="14"
+                                        Foreground="{StaticResource TsAccentBrush}"
+                                        HorizontalAlignment="Center"
+                                        VerticalAlignment="Center"
+                                        IsVisible="{Binding !HasAvatar}" />
+                    <Image Source="{Binding Avatar}" Stretch="UniformToFill"
+                           IsVisible="{Binding HasAvatar}" />
+                  </Panel>
+                </Border>
+                <TextBlock Grid.Column="1"
+                           Text="{Binding Name}"
+                           Margin="12,0,0,0"
+                           VerticalAlignment="Center"
+                           FontWeight="Medium"
+                           TextTrimming="CharacterEllipsis" />
+              </Grid>
+            </Button>
+          </DataTemplate>
+        </ItemsControl.ItemTemplate>
+      </ItemsControl>
+    </ScrollViewer>
+  </DockPanel>
+</Window>

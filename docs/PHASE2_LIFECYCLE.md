@@ -20,6 +20,16 @@ Teamscop will **not** ship malware techniques: Task Manager hiding, process cloa
 
 Enterprise equivalent (what we ship): always-on service, no staff UI, auto-restart, boot start, ARP-visible uninstall gated by admin TOTP.
 
+## Ticket endpoints (threat model)
+
+`POST /api/lifecycle/uninstall/verify|consume` and `POST /api/lifecycle/usb/verify|consume` are **unauthenticated by design**:
+
+- **Verify** proves deviceKey + fresh TOTP and mints a short-lived opaque ticket.
+- **Consume** is bearer-of-ticket: whoever holds a valid unused ticket may complete the action once.
+- Mitigation: short TTL, single-use consume, TOTP window, rate limits on verify/consume.
+
+Admin desktop UI is Avalonia `Teamscop.App`; `AdminHost` remains the console tool for TOTP/teams/police.
+
 ## Process model
 
 ```

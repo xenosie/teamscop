@@ -1,6 +1,7 @@
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
+using Teamscop.Engine.Auth;
 
 namespace Teamscop.Engine.Lifecycle;
 
@@ -32,6 +33,17 @@ public sealed class OrgApiClient : IDisposable
                ?? throw new InvalidOperationException("Empty org structure.");
     }
 
+    public async Task<IReadOnlyList<OrgStaffDto>> ListVisibleStaffAsync(
+        string accessToken, CancellationToken ct = default)
+    {
+        using var req = new HttpRequestMessage(HttpMethod.Get, "api/tracking/staff");
+        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+        using var resp = await _http.SendAsync(req, ct).ConfigureAwait(false);
+        await EnsureSuccess(resp, ct).ConfigureAwait(false);
+        return (await resp.Content.ReadFromJsonAsync<List<OrgStaffDto>>(JsonOptions, ct).ConfigureAwait(false))
+               ?? [];
+    }
+
     public async Task<MyOrgPlacementDto> GetMyPlacementAsync(string accessToken, CancellationToken ct = default)
     {
         using var req = new HttpRequestMessage(HttpMethod.Get, "api/org/me");
@@ -43,7 +55,7 @@ public sealed class OrgApiClient : IDisposable
     }
 
     public async Task<TeamDto> CreateTeamAsync(
-        string accessToken, string name, Guid leaderUserId, CancellationToken ct = default)
+        string accessToken, string name, Guid? leaderUserId = null, CancellationToken ct = default)
     {
         using var req = new HttpRequestMessage(HttpMethod.Post, "api/teams");
         req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
@@ -55,11 +67,16 @@ public sealed class OrgApiClient : IDisposable
     }
 
     public async Task<TeamDto> UpdateTeamAsync(
-        string accessToken, Guid teamId, string? name, Guid? leaderUserId, CancellationToken ct = default)
+        string accessToken,
+        Guid teamId,
+        string? name = null,
+        Guid? leaderUserId = null,
+        bool clearLeader = false,
+        CancellationToken ct = default)
     {
         using var req = new HttpRequestMessage(HttpMethod.Put, $"api/teams/{teamId:D}");
         req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
-        req.Content = JsonContent.Create(new { name, leaderUserId }, options: JsonOptions);
+        req.Content = JsonContent.Create(new { name, leaderUserId, clearLeader }, options: JsonOptions);
         using var resp = await _http.SendAsync(req, ct).ConfigureAwait(false);
         await EnsureSuccess(resp, ct).ConfigureAwait(false);
         return (await resp.Content.ReadFromJsonAsync<TeamDto>(JsonOptions, ct).ConfigureAwait(false))
@@ -109,12 +126,8 @@ public sealed class OrgApiClient : IDisposable
                ?? throw new InvalidOperationException("Empty remove member response.");
     }
 
-    private static async Task EnsureSuccess(HttpResponseMessage response, CancellationToken ct)
-    {
-        if (response.IsSuccessStatusCode) return;
-        var body = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
-        throw new HttpRequestException($"Org API {(int)response.StatusCode}: {body}");
-    }
+    private static Task EnsureSuccess(HttpResponseMessage response, CancellationToken ct)
+        => ApiClientException.ThrowIfUnsuccessfulAsync(response, "Org API", ct);
 
     public void Dispose()
     {
