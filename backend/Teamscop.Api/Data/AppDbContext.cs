@@ -7,6 +7,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
     public DbSet<Company> Companies => Set<Company>();
     public DbSet<UserAccount> Users => Set<UserAccount>();
     public DbSet<UninstallTicket> UninstallTickets => Set<UninstallTicket>();
+    public DbSet<UsbSessionTicket> UsbSessionTickets => Set<UsbSessionTicket>();
     public DbSet<AgentEvent> AgentEvents => Set<AgentEvent>();
     public DbSet<StaffTrackingConfigEntity> StaffTrackingConfigs => Set<StaffTrackingConfigEntity>();
     public DbSet<AgentSequenceState> AgentSequenceStates => Set<AgentSequenceState>();
@@ -40,6 +41,8 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             entity.Property(x => x.Role).HasConversion<string>().HasMaxLength(20);
             entity.Property(x => x.AvatarUrl).HasMaxLength(500);
             entity.Property(x => x.CreatedAt).IsRequired();
+            entity.Property(x => x.AccessTotpSecret).HasMaxLength(128);
+            entity.Property(x => x.AccessTotpEnabled).HasDefaultValue(false);
             entity.HasIndex(x => x.CompanyId);
             entity.HasOne(x => x.Company)
                 .WithMany(x => x.Users)
@@ -57,6 +60,25 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             entity.HasOne(x => x.Company)
                 .WithMany()
                 .HasForeignKey(x => x.CompanyId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<UsbSessionTicket>(entity =>
+        {
+            entity.ToTable("usb_session_tickets");
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.TicketHash).HasMaxLength(128).IsRequired();
+            entity.Property(x => x.DeviceInstanceId).HasMaxLength(512);
+            entity.HasIndex(x => x.TicketHash).IsUnique();
+            entity.HasIndex(x => x.CompanyId);
+            entity.HasIndex(x => x.DeviceUserId);
+            entity.HasOne(x => x.Company)
+                .WithMany()
+                .HasForeignKey(x => x.CompanyId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(x => x.DeviceUser)
+                .WithMany()
+                .HasForeignKey(x => x.DeviceUserId)
                 .OnDelete(DeleteBehavior.Cascade);
         });
 

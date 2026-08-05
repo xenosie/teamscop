@@ -2,6 +2,7 @@ using Teamscop.Engine.Auth;
 using Teamscop.Engine.Lifecycle;
 using Teamscop.Engine.Sync;
 using Teamscop.Engine.Tracking;
+using Teamscop.Engine.Usb;
 using Teamscop.StaffService;
 
 var builder = Host.CreateApplicationBuilder(args);
@@ -68,6 +69,28 @@ builder.Services.AddSingleton(sp => new TrackingCoordinator(
     sp.GetRequiredService<IOutboxQueue>(),
     sp.GetRequiredService<ChromeHistoryWatcher>(),
     businessClock: sp.GetRequiredService<BusinessClock>()));
+
+builder.Services.AddSingleton(sp =>
+{
+    var store = sp.GetRequiredService<LocalAgentStore>();
+    var root = Path.GetDirectoryName(store.StatePath)
+               ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "Teamscop", "Agent");
+    var helper = Path.Combine(AppContext.BaseDirectory, "Teamscop.UsbApproval.exe");
+    if (!File.Exists(helper))
+    {
+        helper = Path.Combine(AppContext.BaseDirectory, "Teamscop.UsbApproval");
+    }
+
+    var lifecycle = sp.GetRequiredService<LifecycleApiClient>();
+    return new UsbSessionController(
+        UsbSessionController.CreatePolicy(),
+        new PollingUsbDeviceWatcher(),
+        new FileUsbApprovalPrompt(Path.Combine(root, "usb"), File.Exists(helper) ? helper : null),
+        new LifecycleUsbAccessVerifier(lifecycle),
+        deviceKey: () => store.Load().DeviceKey,
+        apiBase: () => store.Load().ApiBaseUrl ?? apiBase,
+        outbox: sp.GetRequiredService<IOutboxQueue>());
+});
 
 builder.Services.AddHostedService<StaffAgentWorker>();
 

@@ -3,7 +3,7 @@ using System.Text;
 
 namespace Teamscop.Engine.Lifecycle;
 
-/// <summary>RFC 6238 TOTP (SHA1, 30s, 6 digits) for uninstall authorization.</summary>
+/// <summary>RFC 6238 TOTP (SHA1, 30s, 6 digits) for staff USB approve + uninstall.</summary>
 public static class TotpGenerator
 {
     public const int Digits = 6;

@@ -18,7 +18,7 @@ public class LifecycleFlowTests : IClassFixture<WebApplicationFactory<Program>>
     }
 
     [Fact]
-    public async Task AdminEnrollTotp_StaffUninstallVerify_Works()
+    public async Task AdminEnrollStaffTotp_UsbAndUninstall_ShareSameCode()
     {
         var client = _factory.CreateClient();
         var adminDevice = Guid.NewGuid().ToString("N") + Guid.NewGuid().ToString("N");
@@ -34,15 +34,6 @@ public class LifecycleFlowTests : IClassFixture<WebApplicationFactory<Program>>
         var access = adminDoc.RootElement.GetProperty("accessToken").GetString()!;
         var companyToken = adminDoc.RootElement.GetProperty("companyToken").GetString()!;
 
-        using var enrollReq = new HttpRequestMessage(HttpMethod.Post, "/api/lifecycle/totp/enroll");
-        enrollReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", access);
-        var enrollResp = await client.SendAsync(enrollReq);
-        var enrollBody = await enrollResp.Content.ReadAsStringAsync();
-        Assert.True(enrollResp.IsSuccessStatusCode, enrollBody);
-        using var enrollDoc = JsonDocument.Parse(enrollBody);
-        var secret = enrollDoc.RootElement.GetProperty("secret").GetString()!;
-        Assert.False(string.IsNullOrWhiteSpace(secret));
-
         var staffDevice = Guid.NewGuid().ToString("N") + Guid.NewGuid().ToString("N");
         using var staffForm = new MultipartFormDataContent
         {
@@ -51,23 +42,59 @@ public class LifecycleFlowTests : IClassFixture<WebApplicationFactory<Program>>
             { new StringContent("password123"), "password" },
             { new StringContent(companyToken), "companyToken" }
         };
-        (await client.PostAsync("/api/auth/staff/signup", staffForm)).EnsureSuccessStatusCode();
+        var staffResp = await client.PostAsync("/api/auth/staff/signup", staffForm);
+        staffResp.EnsureSuccessStatusCode();
+        using var staffDoc = JsonDocument.Parse(await staffResp.Content.ReadAsStringAsync());
+        var staffId = staffDoc.RootElement.GetProperty("user").GetProperty("id").GetGuid();
+
+        using var enrollReq = new HttpRequestMessage(HttpMethod.Post, "/api/lifecycle/totp/enroll");
+        enrollReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", access);
+        enrollReq.Content = JsonContent.Create(new { staffUserId = staffId });
+        var enrollResp = await client.SendAsync(enrollReq);
+        var enrollBody = await enrollResp.Content.ReadAsStringAsync();
+        Assert.True(enrollResp.IsSuccessStatusCode, enrollBody);
+        using var enrollDoc = JsonDocument.Parse(enrollBody);
+        var secret = enrollDoc.RootElement.GetProperty("secret").GetString()!;
+        Assert.False(string.IsNullOrWhiteSpace(secret));
+
+        using var codeReq = new HttpRequestMessage(HttpMethod.Get, $"/api/lifecycle/totp/code/{staffId}");
+        codeReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", access);
+        var codeResp = await client.SendAsync(codeReq);
+        codeResp.EnsureSuccessStatusCode();
+        using var codeDoc = JsonDocument.Parse(await codeResp.Content.ReadAsStringAsync());
+        var adminCode = codeDoc.RootElement.GetProperty("code").GetString()!;
+        Assert.Equal(6, adminCode.Length);
 
         var code = TotpGenerator.ComputeCode(secret);
-        var verifyResp = await client.PostAsJsonAsync("/api/lifecycle/uninstall/verify", new
+        Assert.Equal(code, adminCode);
+
+        var uninstallResp = await client.PostAsJsonAsync("/api/lifecycle/uninstall/verify", new
         {
             deviceKey = staffDevice,
             totpCode = code
         });
-        var verifyBody = await verifyResp.Content.ReadAsStringAsync();
-        Assert.True(verifyResp.IsSuccessStatusCode, verifyBody);
-        using var verifyDoc = JsonDocument.Parse(verifyBody);
-        var ticket = verifyDoc.RootElement.GetProperty("uninstallTicket").GetString()!;
+        var uninstallBody = await uninstallResp.Content.ReadAsStringAsync();
+        Assert.True(uninstallResp.IsSuccessStatusCode, uninstallBody);
+        using var uninstallDoc = JsonDocument.Parse(uninstallBody);
+        var ticket = uninstallDoc.RootElement.GetProperty("uninstallTicket").GetString()!;
 
         var consumeResp = await client.PostAsJsonAsync("/api/lifecycle/uninstall/consume", new { uninstallTicket = ticket });
         Assert.Equal(HttpStatusCode.OK, consumeResp.StatusCode);
 
-        var consumeAgain = await client.PostAsJsonAsync("/api/lifecycle/uninstall/consume", new { uninstallTicket = ticket });
+        var usbResp = await client.PostAsJsonAsync("/api/lifecycle/usb/verify", new
+        {
+            deviceKey = staffDevice,
+            totpCode = code,
+            deviceInstanceId = "REMOVABLE\\E:"
+        });
+        var usbBody = await usbResp.Content.ReadAsStringAsync();
+        Assert.True(usbResp.IsSuccessStatusCode, usbBody);
+        using var usbDoc = JsonDocument.Parse(usbBody);
+        var usbTicket = usbDoc.RootElement.GetProperty("usbSessionTicket").GetString()!;
+        var usbConsume = await client.PostAsJsonAsync("/api/lifecycle/usb/consume", new { usbSessionTicket = usbTicket });
+        Assert.Equal(HttpStatusCode.OK, usbConsume.StatusCode);
+
+        var consumeAgain = await client.PostAsJsonAsync("/api/lifecycle/usb/consume", new { usbSessionTicket = usbTicket });
         Assert.Equal(HttpStatusCode.Unauthorized, consumeAgain.StatusCode);
     }
 

@@ -19,5 +19,6 @@
     <ProjectReference Include="..\Teamscop.Engine.Lifecycle\Teamscop.Engine.Lifecycle.csproj" />
     <ProjectReference Include="..\Teamscop.Engine.Sync\Teamscop.Engine.Sync.csproj" />
     <ProjectReference Include="..\Teamscop.Engine.Tracking\Teamscop.Engine.Tracking.csproj" />
+    <ProjectReference Include="..\Teamscop.Engine.Usb\Teamscop.Engine.Usb.csproj" />
   </ItemGroup>
 </Project>

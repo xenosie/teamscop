@@ -15,7 +15,7 @@ public sealed class Company
     public int TokenVersion { get; set; } = 1;
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
 
-    /// <summary>Base32 TOTP secret used for staff uninstall authorization.</summary>
+    /// <summary>Deprecated company-wide TOTP (superseded by per-staff AccessTotp*).</summary>
     public string? UninstallTotpSecret { get; set; }
     public bool UninstallTotpEnabled { get; set; }
     public DateTimeOffset? UninstallTotpEnrolledAt { get; set; }
@@ -63,7 +63,27 @@ public sealed class UserAccount
     public bool? LastOnline { get; set; }
     public DateTimeOffset? LastSeenAt { get; set; }
 
+    /// <summary>Per-staff Base32 TOTP secret for USB approve + uninstall.</summary>
+    public string? AccessTotpSecret { get; set; }
+    public bool AccessTotpEnabled { get; set; }
+    public DateTimeOffset? AccessTotpEnrolledAt { get; set; }
+
     public Company Company { get; set; } = null!;
+}
+
+public sealed class UsbSessionTicket
+{
+    public Guid Id { get; set; }
+    public Guid CompanyId { get; set; }
+    public Guid DeviceUserId { get; set; }
+    public required string TicketHash { get; set; }
+    public string? DeviceInstanceId { get; set; }
+    public DateTimeOffset ExpiresAt { get; set; }
+    public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
+    public bool Consumed { get; set; }
+
+    public Company Company { get; set; } = null!;
+    public UserAccount DeviceUser { get; set; } = null!;
 }
 
 public sealed class AgentEvent

@@ -68,7 +68,9 @@ jobs:
           dotnet build agent/Teamscop.StaffService/Teamscop.StaffService.csproj -c Release
           dotnet build agent/Teamscop.AdminHost/Teamscop.AdminHost.csproj -c Release
           dotnet build agent/Teamscop.UninstallGuard/Teamscop.UninstallGuard.csproj -c Release
+          dotnet build agent/Teamscop.UsbApproval/Teamscop.UsbApproval.csproj -c Release
           dotnet build agent/Teamscop.Engine.Tracking/Teamscop.Engine.Tracking.csproj -c Release
+          dotnet build agent/Teamscop.Engine.Usb/Teamscop.Engine.Usb.csproj -c Release
 
       - name: Run engine tests on Windows runner
         env:

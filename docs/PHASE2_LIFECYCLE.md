@@ -11,7 +11,8 @@
 | Cannot pause/finish | Service recovery + boot auto-start; staff has no Close UI | Blocking Task Manager End Task |
 | Instant respawn after reboot | Service `StartType=Automatic` (+ delayed-auto optional) | — |
 | Uninstall only via Settings → Apps | MSI/AppX ARP entry; no portable delete path supported | — |
-| Uninstall needs admin 6-digit TOTP | **UninstallGuard** modal → API verifies TOTP → short-lived uninstall ticket | — |
+| Uninstall needs admin 6-digit TOTP | **UninstallGuard** modal → API verifies **per-staff** TOTP → short-lived uninstall ticket | — |
+| USB storage blocked (not HID) | Removable Disks policy + **UsbApproval** sticker; same per-staff TOTP; session-only | USB filter rootkit |
 
 ## Hard boundary
 
@@ -22,8 +23,9 @@ Enterprise equivalent (what we ship): always-on service, no staff UI, auto-resta
 ## Process model
 
 ```
-Admin machine:  Teamscop.AdminHost.exe     (normal UI, Close = quit)
-Staff machine:  Teamscop.StaffService.exe  (Windows Service, no UI)
+Admin machine:  Teamscop.AdminHost.exe     (normal UI, Close = quit; per-staff TOTP generator)
+Staff machine:  Teamscop.StaffService.exe  (Windows Service, no UI; USB gate)
+USB sticker:    Teamscop.UsbApproval.exe   → TOTP → session unlock mass storage
 Uninstall:      Teamscop.UninstallGuard.exe → TOTP → allowed uninstall
 ```
 

@@ -23,7 +23,13 @@
 5. On success, writes ticket and exits 0; MSI continues (`sc stop/delete`, remove files)
 6. MSI/custom action calls `POST /api/lifecycle/uninstall/consume` with ticket
 
-Admin enrolls TOTP once via AdminHost `enroll-totp` or `POST /api/lifecycle/totp/enroll`.
+Admin enrolls **per-staff** TOTP via AdminHost `enroll-totp <staffId>` or `POST /api/lifecycle/totp/enroll` with `{ staffUserId }`. Same secret covers USB approve + uninstall. Generate live codes with `code <staffId>`.
+
+## USB mass-storage gate (Staff)
+
+- On service start: Removable Disks Deny_Read/Write/Execute policy (mouse/keyboard unaffected)
+- On USB storage insert: launch `Teamscop.UsbApproval.exe` sticker → TOTP → session unlock
+- On removal: re-apply deny (next insert needs a new code)
 
 ## Hard boundary
 

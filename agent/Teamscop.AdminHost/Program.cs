@@ -5,7 +5,7 @@ namespace Teamscop.AdminHost;
 
 /// <summary>
 /// Admin desktop host. Close / Ctrl+C fully ends this process.
-/// WinUI shell can replace this console host later without changing lifecycle policy.
+/// Per-staff TOTP key generator for USB approve + uninstall.
 /// </summary>
 public static class Program
 {
@@ -32,7 +32,11 @@ public static class Program
         Console.WriteLine($"DeviceKey: {state.DeviceKey}");
         Console.WriteLine($"State file: {store.StatePath}");
         Console.WriteLine();
-        Console.WriteLine("Commands: enroll-totp | status | quit");
+        Console.WriteLine("Commands:");
+        Console.WriteLine("  staff                     — list staff + TOTP status");
+        Console.WriteLine("  enroll-totp <staffId>     — enroll per-staff TOTP (USB + uninstall)");
+        Console.WriteLine("  code <staffId>            — generate current 6-digit code");
+        Console.WriteLine("  quit");
 
         using var lifecycle = new LifecycleApiClient(state.ApiBaseUrl ?? apiBase);
         using var cts = new CancellationTokenSource();
@@ -51,42 +55,87 @@ public static class Program
                 break;
             }
 
-            var cmd = line.Trim().ToLowerInvariant();
+            var parts = line.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length == 0)
+            {
+                continue;
+            }
+
+            var cmd = parts[0].ToLowerInvariant();
             if (cmd is "quit" or "exit" or "close")
             {
                 break;
             }
 
-            if (cmd == "enroll-totp")
+            if (string.IsNullOrWhiteSpace(state.AccessToken)
+                && cmd is "staff" or "enroll-totp" or "code")
             {
-                if (string.IsNullOrWhiteSpace(state.AccessToken))
+                Console.WriteLine("Login first (set AccessToken in agent-state.json after auth).");
+                continue;
+            }
+
+            try
+            {
+                if (cmd == "staff")
                 {
-                    Console.WriteLine("Login first (set AccessToken in agent-state.json after auth).");
+                    var list = await lifecycle.ListStaffTotpAsync(state.AccessToken!, cts.Token);
+                    if (list.Count == 0)
+                    {
+                        Console.WriteLine("(no staff)");
+                        continue;
+                    }
+
+                    foreach (var s in list)
+                    {
+                        Console.WriteLine(
+                            $"{s.StaffUserId}  {s.StaffUsername,-20}  totp={(s.Enabled ? "enrolled" : "missing")}");
+                    }
+
                     continue;
                 }
 
-                try
+                if (cmd == "enroll-totp")
                 {
-                    var enroll = await lifecycle.EnrollTotpAsync(state.AccessToken, cts.Token);
-                    Console.WriteLine("TOTP enrolled. Add this to your authenticator app:");
+                    if (parts.Length < 2 || !Guid.TryParse(parts[1], out var staffId))
+                    {
+                        Console.WriteLine("Usage: enroll-totp <staffUserId>");
+                        continue;
+                    }
+
+                    var enroll = await lifecycle.EnrollTotpAsync(state.AccessToken!, staffId, cts.Token);
+                    Console.WriteLine($"TOTP enrolled for {enroll.StaffUsername} (USB + uninstall).");
+                    Console.WriteLine("Add to authenticator OR use `code <staffId>` generator:");
                     Console.WriteLine(enroll.OtpAuthUri);
                     Console.WriteLine($"Secret: {enroll.Secret}");
+                    continue;
                 }
-                catch (Exception ex)
+
+                if (cmd == "code")
                 {
-                    Console.WriteLine($"Enroll failed: {ex.Message}");
+                    if (parts.Length < 2 || !Guid.TryParse(parts[1], out var staffId))
+                    {
+                        Console.WriteLine("Usage: code <staffUserId>");
+                        continue;
+                    }
+
+                    var code = await lifecycle.GetTotpCodeAsync(state.AccessToken!, staffId, cts.Token);
+                    Console.WriteLine(
+                        $"{code.StaffUsername}: {code.Code}  (valid ~{code.RemainingSeconds}s) — USB or uninstall");
+                    continue;
                 }
 
-                continue;
-            }
+                if (cmd == "status")
+                {
+                    Console.WriteLine($"Token present: {!string.IsNullOrWhiteSpace(state.AccessToken)}");
+                    continue;
+                }
 
-            if (cmd == "status")
+                Console.WriteLine("Unknown command.");
+            }
+            catch (Exception ex)
             {
-                Console.WriteLine($"Token present: {!string.IsNullOrWhiteSpace(state.AccessToken)}");
-                continue;
+                Console.WriteLine($"Failed: {ex.Message}");
             }
-
-            Console.WriteLine("Unknown command.");
         }
 
         Console.WriteLine("Admin host exiting.");

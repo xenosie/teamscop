@@ -13,7 +13,8 @@ public static class Program
     {
         Console.WriteLine("========================================");
         Console.WriteLine(" Teamscop Uninstall Authorization");
-        Console.WriteLine(" Enter the 6-digit admin TOTP code");
+        Console.WriteLine(" Enter the 6-digit staff TOTP code");
+        Console.WriteLine(" (same key used for USB approve)");
         Console.WriteLine("========================================");
 
         var apiBase = GetArg(args, "--api") ?? "https://teamscop.com";

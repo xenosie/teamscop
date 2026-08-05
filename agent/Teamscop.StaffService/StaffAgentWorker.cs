@@ -1,11 +1,12 @@
 using Teamscop.Engine.Lifecycle;
 using Teamscop.Engine.Sync;
 using Teamscop.Engine.Tracking;
+using Teamscop.Engine.Usb;
 
 namespace Teamscop.StaffService;
 
 /// <summary>
-/// Staff background loop: tracking + business clock + connectivity + vault + sync flush.
+/// Staff background loop: USB gate + tracking + business clock + connectivity + vault + sync flush.
 /// </summary>
 public sealed class StaffAgentWorker(
     ILogger<StaffAgentWorker> logger,
@@ -14,7 +15,8 @@ public sealed class StaffAgentWorker(
     LifecycleApiClient lifecycleApi,
     SyncEngine syncEngine,
     TrackingCoordinator tracking,
-    ConfigRealtimeClient configClient) : BackgroundService
+    ConfigRealtimeClient configClient,
+    UsbSessionController usb) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -25,6 +27,19 @@ public sealed class StaffAgentWorker(
             "Teamscop staff agent starting. InstallRoot={Root} Service={Service}",
             policy.RecommendedInstallRoot,
             ServiceInstallerHints.ServiceName);
+
+        try
+        {
+            await usb.StartAsync(stoppingToken);
+            logger.LogInformation(
+                "USB mass-storage gate active. PolicyBlocked={Blocked} Supported={Supported}",
+                usb.PolicyBlocked,
+                usb.PolicySupported);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "USB gate failed to start; continuing without USB block");
+        }
 
         var loopSeconds = configuration.GetValue("Agent:SyncSeconds", 30);
         var configStarted = false;
@@ -131,6 +146,7 @@ public sealed class StaffAgentWorker(
         }
 
         await configClient.DisposeAsync();
+        await usb.DisposeAsync();
         logger.LogInformation("Teamscop staff agent stopping.");
     }
 }

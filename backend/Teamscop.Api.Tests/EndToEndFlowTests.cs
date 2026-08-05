@@ -43,16 +43,7 @@ public class EndToEndFlowTests : IClassFixture<WebApplicationFactory<Program>>
         Assert.True(codec.TryDecrypt(companyToken, out var peek));
         Assert.Equal("E2E Corp", peek!.CompanyName);
 
-        // 2) Admin enrolls uninstall TOTP
-        using var enrollReq = Authed(HttpMethod.Post, "/api/lifecycle/totp/enroll", adminToken);
-        var enrollResp = await _client.SendAsync(enrollReq);
-        var enrollBody = await enrollResp.Content.ReadAsStringAsync();
-        Assert.True(enrollResp.IsSuccessStatusCode, enrollBody);
-        using var enrollDoc = JsonDocument.Parse(enrollBody);
-        var secret = enrollDoc.RootElement.GetProperty("secret").GetString()!;
-        Assert.False(string.IsNullOrWhiteSpace(secret));
-
-        // 3) Staff signup with company token
+        // 2) Staff signup with company token
         var staffDevice = NewDeviceKey();
         using var staffForm = SignupForm(staffDevice, "E2E Staff", "password123", companyToken);
         var staffResp = await _client.PostAsync("/api/auth/staff/signup", staffForm);
@@ -62,6 +53,16 @@ public class EndToEndFlowTests : IClassFixture<WebApplicationFactory<Program>>
         var staffToken = staffDoc.RootElement.GetProperty("accessToken").GetString()!;
         var staffId = staffDoc.RootElement.GetProperty("user").GetProperty("id").GetGuid();
         Assert.Equal("staff", staffDoc.RootElement.GetProperty("user").GetProperty("role").GetString());
+
+        // 3) Admin enrolls per-staff TOTP (USB + uninstall)
+        using var enrollReq = Authed(HttpMethod.Post, "/api/lifecycle/totp/enroll", adminToken);
+        enrollReq.Content = JsonContent.Create(new { staffUserId = staffId });
+        var enrollResp = await _client.SendAsync(enrollReq);
+        var enrollBody = await enrollResp.Content.ReadAsStringAsync();
+        Assert.True(enrollResp.IsSuccessStatusCode, enrollBody);
+        using var enrollDoc = JsonDocument.Parse(enrollBody);
+        var secret = enrollDoc.RootElement.GetProperty("secret").GetString()!;
+        Assert.False(string.IsNullOrWhiteSpace(secret));
 
         // 4) Admin configures screenshot/time/browser for staff
         var cfgBody = new StaffTrackingConfig

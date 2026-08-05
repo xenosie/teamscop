@@ -8,8 +8,10 @@ Windows agent + ASP.NET Core API. This repository currently ships the **Auth Eng
 - Lifecycle engine: `agent/Teamscop.Engine.Lifecycle`
 - Sync engine: `agent/Teamscop.Engine.Sync`
 - Tracking engine: `agent/Teamscop.Engine.Tracking` (time/screenshot/Chrome + secure vault)
+- USB engine: `agent/Teamscop.Engine.Usb` (mass-storage block + session TOTP unlock)
 - Staff Windows Service: `agent/Teamscop.StaffService`
-- Admin host: `agent/Teamscop.AdminHost`
+- Admin host: `agent/Teamscop.AdminHost` (per-staff TOTP key generator)
+- USB approval sticker: `agent/Teamscop.UsbApproval`
 - Uninstall TOTP guard: `agent/Teamscop.UninstallGuard`
 - API: `backend/Teamscop.Api` (.NET 8 + PostgreSQL)
 - Deploy: `deploy/`
@@ -17,6 +19,7 @@ Windows agent + ASP.NET Core API. This repository currently ships the **Auth Eng
 - Phase-3 sync: [`docs/PHASE3_SYNC.md`](docs/PHASE3_SYNC.md)
 - Phase-4 tracking: [`docs/PHASE4_TRACKING.md`](docs/PHASE4_TRACKING.md)
 - Phase-5 business time: [`docs/PHASE5_BUSINESS_TIME.md`](docs/PHASE5_BUSINESS_TIME.md)
+- Phase-6 USB: [`docs/PHASE6_USB.md`](docs/PHASE6_USB.md)
 
 ## Auth model
 
@@ -42,7 +45,7 @@ Workflow: [`.github/workflows/e2e.yml`](.github/workflows/e2e.yml)
 | Job | Runner | What it covers |
 |---|---|---|
 | `linux-api-e2e` | ubuntu-latest | Full `dotnet test` (unit + end-to-end API path) |
-| `windows-agent-build` | windows-latest | Build Staff/Admin/Uninstall + re-run tests on Windows |
+| `windows-agent-build` | windows-latest | Build Staff/Admin/Uninstall/USB + re-run tests on Windows |
 | `live-smoke` | ubuntu-latest | Hits `https://teamscop.com` (manual dispatch or push to `main`) |
 
 ```bash
@@ -71,10 +74,14 @@ The Windows agent must use the same `CompanyToken__Key` (base64 32-byte AES key)
 - `POST /api/auth/login` (JSON: deviceKey, password)
 - `GET /api/auth/me` (Bearer)
 - `POST /api/auth/company-token/reveal` (Admin Bearer)
-- `POST /api/lifecycle/totp/enroll` (Admin Bearer) — returns 6-digit TOTP secret / otpauth URI
-- `GET /api/lifecycle/totp/status` (Admin Bearer)
+- `POST /api/lifecycle/totp/enroll` (Admin Bearer, `{ staffUserId }`) — per-staff TOTP for USB + uninstall
+- `GET /api/lifecycle/totp/staff` (Admin Bearer) — list staff TOTP status
+- `GET /api/lifecycle/totp/status/{staffUserId}` (Admin Bearer)
+- `GET /api/lifecycle/totp/code/{staffUserId}` (Admin Bearer) — current 6-digit code generator
 - `POST /api/lifecycle/uninstall/verify` — staff deviceKey + TOTP → uninstall ticket
 - `POST /api/lifecycle/uninstall/consume` — consume ticket during MSI uninstall
+- `POST /api/lifecycle/usb/verify` — staff deviceKey + TOTP → USB session ticket
+- `POST /api/lifecycle/usb/consume` — consume USB session ticket
 - `POST /api/lifecycle/heartbeat` (Bearer)
 - `POST /api/ingest/batch` (Bearer) — durable agent event push
 - `GET /api/tracking/config/me` (Staff Bearer)
