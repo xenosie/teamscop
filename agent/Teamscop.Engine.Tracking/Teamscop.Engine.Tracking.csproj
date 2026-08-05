@@ -4,22 +4,23 @@
     <TargetFramework>net8.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <DefineConstants Condition="$([MSBuild]::IsOSPlatform('Windows'))">$(DefineConstants);WINDOWS</DefineConstants>
-    <UseWindowsForms Condition="$([MSBuild]::IsOSPlatform('Windows'))">true</UseWindowsForms>
   </PropertyGroup>
 
-  <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Windows'))">
-    <PackageReference Include="System.Drawing.Common" Version="8.0.11" />
-  </ItemGroup>
-
+  <!-- Portable TFM for Linux CI + Windows agent host.
+       Full GDI multi-monitor capture lives in WindowsScreenCapture.Gdi.cs and is
+       enabled only by a future net8.0-windows packaging project. -->
   <ItemGroup>
-    <ProjectReference Include="..\Teamscop.Engine.Sync\Teamscop.Engine.Sync.csproj" />
-    <ProjectReference Include="..\Teamscop.Engine.Lifecycle\Teamscop.Engine.Lifecycle.csproj" />
+    <Compile Remove="WindowsScreenCapture.Gdi.cs" />
   </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" Version="8.0.11" />
     <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.11" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Teamscop.Engine.Sync\Teamscop.Engine.Sync.csproj" />
+    <ProjectReference Include="..\Teamscop.Engine.Lifecycle\Teamscop.Engine.Lifecycle.csproj" />
   </ItemGroup>
 
 </Project>

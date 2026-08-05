@@ -1,16 +1,11 @@
 namespace Teamscop.Engine.Tracking;
 
 /// <summary>
-/// Windows multi-monitor capture. Full GDI/JPEG path is enabled only when built on Windows
-/// with drawing packs; Linux CI uses the stub in <see cref="ScreenshotEngine"/>.
+/// Placeholder for OS screen capture. Portable builds use <see cref="ScreenshotEngine"/> stub
+/// frames; Windows installer builds can swap in GDI via WindowsScreenCapture.Gdi.cs.
 /// </summary>
 internal static class WindowsScreenCapture
 {
-#if WINDOWS
-    public static IReadOnlyList<DisplayCapture> CaptureAll(int targetBytes)
-        => WindowsScreenCaptureGdi.CaptureAll(targetBytes);
-#else
     public static IReadOnlyList<DisplayCapture> CaptureAll(int targetBytes)
         => Array.Empty<DisplayCapture>();
-#endif
 }

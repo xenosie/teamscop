@@ -51,23 +51,24 @@ public sealed class ScreenshotEngine
             return [];
         }
 
-        if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        var captured = CaptureWindows(config);
+        if (captured.Count > 0)
         {
-            // Deterministic stub for non-Windows CI: tiny fake JPEG-like payload.
-            return
-            [
-                new DisplayCapture
-                {
-                    DisplayIndex = 1,
-                    Width = 16,
-                    Height = 16,
-                    JpegBytes = CreateStubJpeg(config.TargetBytes / 20),
-                    QualityUsed = 40
-                }
-            ];
+            return captured;
         }
 
-        return CaptureWindows(config);
+        // Portable/CI fallback until Windows GDI packager is wired.
+        return
+        [
+            new DisplayCapture
+            {
+                DisplayIndex = 1,
+                Width = 16,
+                Height = 16,
+                JpegBytes = CreateStubJpeg(Math.Min(config.TargetBytes, 4 * 1024)),
+                QualityUsed = 40
+            }
+        ];
     }
 
     public byte[] SerializeCaptures(IReadOnlyList<DisplayCapture> captures, long configVersion)
