@@ -17,6 +17,7 @@ Staff **App history** in the admin UI lists discrete lifecycle events for one st
 - Persist as `agent_events` rows (same table as tracking ingest).
 - Server-side emitters (registration, uninstall) write directly; agents use `/api/ingest/batch` allowlist.
 - Admin UI: `GET /api/tracking/events?staffUserId=&eventType=` (filtered by PHASE8 packages).
+- Package map: `usb_event` → `usb_approval`; `registration` / `power_off` / `uninstall` / `app_broken` → `uninstall_approval`. Client loads types independently so partial packages still return allowed rows.
 
 ## Payloads (sketch)
 

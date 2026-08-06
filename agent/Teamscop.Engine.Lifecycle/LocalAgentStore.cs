@@ -7,6 +7,7 @@ public sealed class LocalAgentState
     public string? AccessToken { get; set; }
     public string? DeviceKey { get; set; }
     public string? Role { get; set; }
+    public Guid? UserId { get; set; }
     public Guid? CompanyId { get; set; }
     public string? ApiBaseUrl { get; set; }
     public string? Username { get; set; }
@@ -51,8 +52,15 @@ public sealed class LocalAgentStore
     {
         if (role == AgentRole.Staff)
         {
-            var programData = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
-            return Path.Combine(programData, "Teamscop", "Agent");
+            // Windows service agent uses ProgramData; Linux/mac preview uses LocalAppData.
+            if (OperatingSystem.IsWindows())
+            {
+                var programData = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
+                return Path.Combine(programData, "Teamscop", "Agent");
+            }
+
+            var staffLocal = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            return Path.Combine(staffLocal, "Teamscop", "Staff");
         }
 
         var local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);

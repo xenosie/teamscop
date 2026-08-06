@@ -8,7 +8,7 @@
 | Team leader | At most one staff leader per team; **leader slot may be empty**; a person leads at most one team |
 | Members | Any number of staff; each staff in **at most one** team |
 | Leaders ≠ members | Leaders are not members of any team |
-| Tracking visibility | **Not** granted by being a team leader — see [PHASE8_AUTHORITIES.md](PHASE8_AUTHORITIES.md) |
+| Tracking visibility | Team leader **immediately** sees Summary / Screenshot / Browsing / Time Track for **their team members only**. Never USB approval or App history (unless separately granted as policeman). See [PHASE8_AUTHORITIES.md](PHASE8_AUTHORITIES.md) |
 | Immediate | Structure changes bump `OrgStructureVersion` and SignalR `OrgStructureUpdated` |
 
 ## Model
@@ -33,9 +33,9 @@ Unassigned staff = neither leader nor member of any team.
 | PUT | `/api/teams/{id}/members` | replace `{ memberUserIds: [] }` |
 | POST/DELETE | `/api/teams/{id}/members[/{staffUserId}]` | — |
 
-Hub: `/hubs/config` → `OrgStructureUpdated` (company group)
+Hub: `/hubs/config` → `OrgStructureUpdated` (company group) + `AuthoritiesUpdated` (each staff, so leaders gain/lose view packages immediately)
 
-Staff/event listing for monitoring is **not** defined here — use PHASE8 + `/api/tracking/*`.
+Visible staff for monitoring: `GET /api/tracking/staff` (admin/policeman = company; team leader = members only).
 
 ## Clients
 

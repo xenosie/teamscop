@@ -41,10 +41,12 @@ public class PoliceAuthorityFlowTests : IClassFixture<WebApplicationFactory<Prog
         Assert.Contains(me.RootElement.GetProperty("packages").EnumerateArray(),
             p => p.GetString() == AuthorityPackageIds.ViewTimeTrack);
 
-        // Company-wide staff list
+        // Company-wide staff list (self excluded)
         using var staffReq = Authed(HttpMethod.Get, "/api/tracking/staff", copToken);
         var staffDoc = JsonDocument.Parse(await (await _client.SendAsync(staffReq)).Content.ReadAsStringAsync());
-        Assert.True(staffDoc.RootElement.GetArrayLength() >= 3);
+        Assert.True(staffDoc.RootElement.GetArrayLength() >= 2);
+        Assert.DoesNotContain(staffDoc.RootElement.EnumerateArray(),
+            e => e.GetProperty("userId").GetGuid() == copId);
 
         // Timetrack visible for any staff; browser/screenshot filtered out
         using var ttReq = Authed(HttpMethod.Get, $"/api/tracking/events?staffUserId={targetId}&take=20", copToken);

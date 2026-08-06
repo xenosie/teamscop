@@ -5,11 +5,12 @@
 | Your rule | How we implement it | Rejected alternative |
 |---|---|---|
 | Admin Close ends the app | Separate **AdminHost** desktop process; Close/Exit = full process exit | — |
-| Staff never broken / background | **Windows Service** (`TeamscopStaff`) with SCM recovery (restart on failure) | Hidden rootkit / unkillable process |
+| Staff never broken / background | **Windows Service** (`TeamscopStaff`) with SCM recovery (restart on failure) + **SessionHelper** + always-live App UI | Hidden rootkit / unkillable process |
+| App running | Heartbeat + tracking healthy + staff UI live (workspace or sticker) | Avalonia alone as the agent |
 | Not in Task Manager | **Not implemented.** Services remain visible as normal OS processes | Process cloaking / rootkit |
 | Files not findable | No Start Menu/Desktop shortcuts; install under `%ProgramData%\Teamscop\Agent` | File-system cloaking / ADS hiding |
-| Cannot pause/finish | Service recovery + boot auto-start; staff has no Close UI | Blocking Task Manager End Task |
-| Instant respawn after reboot | Service `StartType=Automatic` (+ delayed-auto optional) | — |
+| Cannot pause/finish | Service recovery + boot auto-start; sticker has no Close; workspace Close → sticker | Blocking Task Manager End Task |
+| Instant respawn after reboot | Service `StartType=Automatic` + Run-at-logon for SessionHelper/App | — |
 | Uninstall only via Settings → Apps | MSI/AppX ARP entry; no portable delete path supported | — |
 | Uninstall needs admin 6-digit TOTP | **UninstallGuard** modal → API verifies **per-staff** TOTP → short-lived uninstall ticket | — |
 | USB storage blocked (not HID) | Removable Disks policy + **UsbApproval** sticker; same per-staff TOTP; session-only | USB filter rootkit |
@@ -18,7 +19,7 @@
 
 Teamscop will **not** ship malware techniques: Task Manager hiding, process cloaking, kernel rootkits, or making End Task impossible. Those break Windows security model, AV/EDR policy, and often local law even for “employer monitoring.”
 
-Enterprise equivalent (what we ship): always-on service, no staff UI, auto-restart, boot start, ARP-visible uninstall gated by admin TOTP.
+Enterprise equivalent (what we ship): always-on service, session capture helper, always-live staff UI (sticker/workspace), auto-restart, boot start, ARP-visible uninstall gated by admin TOTP. **Admin machines: no tracking service.**
 
 ## Ticket endpoints (threat model)
 
@@ -33,11 +34,15 @@ Admin desktop UI is Avalonia `Teamscop.App`; `AdminHost` remains the console too
 ## Process model
 
 ```
-Admin machine:  Teamscop.AdminHost.exe     (normal UI, Close = quit; per-staff TOTP generator)
-Staff machine:  Teamscop.StaffService.exe  (Windows Service, no UI; USB gate)
+Admin machine:  Teamscop.App / AdminHost   (UI only; Close = quit; no tracking service)
+Staff machine:  Teamscop.StaffService.exe  (Windows Service: vault/sync/heartbeat/USB/pipe)
+                Teamscop.SessionHelper.exe (user session capture → named pipe)
+                Teamscop.App.exe           (sticker or leader/police workspace; always live)
 USB sticker:    Teamscop.UsbApproval.exe   → TOTP → session unlock mass storage
 Uninstall:      Teamscop.UninstallGuard.exe → TOTP → allowed uninstall
 ```
+
+Installer: [`deploy/windows/INSTALLER.md`](../deploy/windows/INSTALLER.md) (`install-staff.ps1` + WiX).
 
 ## Stack
 

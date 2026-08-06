@@ -66,6 +66,10 @@ builder.Services.AddScoped<IBusinessTimeService, BusinessTimeService>();
 builder.Services.AddScoped<IAuthorityService, AuthorityService>();
 builder.Services.AddScoped<ITeamService, TeamService>();
 builder.Services.AddScoped<ITrackingQueryService, TrackingQueryService>();
+builder.Services.AddScoped<IScreenshotMediaService, ScreenshotMediaService>();
+builder.Services.AddScoped<IBrowsingQueryService, BrowsingQueryService>();
+builder.Services.AddScoped<ITimeTrackQueryService, TimeTrackQueryService>();
+builder.Services.AddScoped<IChainHealthService, ChainHealthService>();
 builder.Services.AddSignalR();
 
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
@@ -76,13 +80,31 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             ValidateIssuer = true,
             ValidateAudience = true,
             ValidateIssuerSigningKey = true,
-            ValidateLifetime = true,
+            // Access tokens are intentionally non-expiring (no fixed session lifetime).
+            ValidateLifetime = false,
+            RequireExpirationTime = false,
             ValidIssuer = jwt.Issuer,
             ValidAudience = jwt.Audience,
             IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwt.Key)),
-            ClockSkew = TimeSpan.FromMinutes(1),
             NameClaimType = "sub",
             RoleClaimType = ClaimTypes.Role
+        };
+
+        // SignalR WebSockets send the JWT as ?access_token= (not Authorization header).
+        options.Events = new JwtBearerEvents
+        {
+            OnMessageReceived = context =>
+            {
+                var accessToken = context.Request.Query["access_token"];
+                var path = context.HttpContext.Request.Path;
+                if (!string.IsNullOrEmpty(accessToken)
+                    && path.StartsWithSegments("/hubs"))
+                {
+                    context.Token = accessToken;
+                }
+
+                return Task.CompletedTask;
+            }
         };
     });
 builder.Services.AddAuthorization();

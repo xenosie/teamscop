@@ -256,13 +256,28 @@ public sealed class TeamService(
     public async Task<IReadOnlyList<OrgStaffDto>> ListVisibleStaffAsync(Guid viewerId, CancellationToken ct)
     {
         var viewer = await RequireUserAsync(viewerId, ct);
-        if (!await authorities.CanViewCompanyStaffAsync(viewerId, ct))
+
+        // Admin / policeman with monitoring packages → whole company staff (never include self).
+        if (await authorities.CanViewCompanyStaffAsync(viewerId, ct))
+        {
+            return await db.Users.AsNoTracking()
+                .Where(u => u.CompanyId == viewer.CompanyId
+                            && u.Role == UserRole.Staff
+                            && u.Id != viewerId)
+                .OrderBy(u => u.Username)
+                .Select(u => ToStaffDto(u))
+                .ToListAsync(ct);
+        }
+
+        // Team leader → only members of the team they lead (immediate with leader assignment).
+        var memberIds = await authorities.ListLedMemberIdsAsync(viewerId, ct);
+        if (memberIds.Count == 0)
         {
             return [];
         }
 
         return await db.Users.AsNoTracking()
-            .Where(u => u.CompanyId == viewer.CompanyId && u.Role == UserRole.Staff)
+            .Where(u => memberIds.Contains(u.Id) && u.Role == UserRole.Staff && u.Id != viewerId)
             .OrderBy(u => u.Username)
             .Select(u => ToStaffDto(u))
             .ToListAsync(ct);
@@ -277,6 +292,18 @@ public sealed class TeamService(
         var dto = await BuildStructureAsync(companyId, ct);
         await hub.Clients.Group(ConfigHub.CompanyGroup(companyId))
             .SendAsync("OrgStructureUpdated", dto, ct);
+
+        // Leaders gain/lose inherent view packages immediately with assignment changes.
+        var staffIds = await db.Users.AsNoTracking()
+            .Where(u => u.CompanyId == companyId && u.Role == UserRole.Staff)
+            .Select(u => u.Id)
+            .ToListAsync(ct);
+        foreach (var staffId in staffIds)
+        {
+            var auth = await authorities.GetEffectiveAsync(staffId, ct);
+            await hub.Clients.Group(ConfigHub.StaffGroup(staffId))
+                .SendAsync("AuthoritiesUpdated", auth, ct);
+        }
     }
 
     private async Task<OrgStructureDto> BuildStructureAsync(Guid companyId, CancellationToken ct)

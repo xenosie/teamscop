@@ -1,0 +1,126 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:Teamscop.App.ViewModels"
+             xmlns:heroIcons="clr-namespace:HeroIconsAvalonia.Controls;assembly=HeroIconsAvalonia"
+             x:Class="Teamscop.App.Views.StaffPeriodCalendarView"
+             x:DataType="vm:StaffPeriodFilterViewModel"
+             Width="340">
+
+  <Border Name="WallpaperRoot"
+          BorderBrush="{StaticResource TsBorderBrush}"
+          BorderThickness="1"
+          Padding="14"
+          BoxShadow="0 12 36 0 #332563EB"
+          ClipToBounds="True">
+    <StackPanel Spacing="12">
+      <Grid ColumnDefinitions="Auto,*,Auto,Auto">
+        <Button Grid.Column="0"
+                Classes="ts-link"
+                Padding="6,4"
+                Command="{Binding PrevMonthCommand}"
+                ToolTip.Tip="Previous month">
+          <heroIcons:HeroIcon Type="ChevronLeft" Kind="Outline" Width="18" Height="18"
+                              Foreground="White" />
+        </Button>
+        <ComboBox Grid.Column="1"
+                  ItemsSource="{Binding MonthOptions}"
+                  SelectedItem="{Binding SelectedMonthOption}"
+                  MinWidth="120"
+                  Height="32"
+                  HorizontalAlignment="Stretch"
+                  Margin="6,0"
+                  VerticalAlignment="Center" />
+        <ComboBox Grid.Column="2"
+                  ItemsSource="{Binding YearOptions}"
+                  SelectedItem="{Binding VisibleYear}"
+                  MinWidth="78"
+                  Height="32"
+                  VerticalAlignment="Center"
+                  Margin="0,0,4,0" />
+        <Button Grid.Column="3"
+                Classes="ts-link"
+                Padding="6,4"
+                Command="{Binding NextMonthCommand}"
+                ToolTip.Tip="Next month">
+          <heroIcons:HeroIcon Type="ChevronRight" Kind="Outline" Width="18" Height="18"
+                              Foreground="White" />
+        </Button>
+      </Grid>
+
+      <TextBlock Text="Select a day, or a start and end day. A single day is 00:00–24:00."
+                 FontSize="11"
+                 Foreground="#E8F0FF"
+                 TextWrapping="Wrap" />
+
+      <ItemsControl ItemsSource="{Binding WeekdayHeaders}">
+        <ItemsControl.ItemsPanel>
+          <ItemsPanelTemplate>
+            <UniformGrid Columns="7" />
+          </ItemsPanelTemplate>
+        </ItemsControl.ItemsPanel>
+        <ItemsControl.ItemTemplate>
+          <DataTemplate>
+            <TextBlock Text="{Binding}"
+                       FontSize="11"
+                       FontWeight="Bold"
+                       Foreground="White"
+                       HorizontalAlignment="Center"
+                       Margin="0,0,0,2" />
+          </DataTemplate>
+        </ItemsControl.ItemTemplate>
+      </ItemsControl>
+
+      <Border BorderBrush="#B8FFFFFF" BorderThickness="1">
+        <ItemsControl Classes="ts-cal-grid" ItemsSource="{Binding Days}">
+          <ItemsControl.ItemsPanel>
+            <ItemsPanelTemplate>
+              <UniformGrid Columns="7" Rows="6" />
+            </ItemsPanelTemplate>
+          </ItemsControl.ItemsPanel>
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="vm:CalendarDayCellViewModel">
+              <Button Classes="ts-cal-day"
+                      Command="{Binding ClickCommand}"
+                      HorizontalAlignment="Stretch"
+                      VerticalAlignment="Stretch">
+                <Panel HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
+                  <Border Background="White"
+                          IsVisible="{Binding IsInPeriod}" />
+                  <Border BorderBrush="#E8F0FF"
+                          BorderThickness="1"
+                          IsVisible="{Binding IsToday}" />
+                  <TextBlock Text="{Binding DayNumber}"
+                             FontSize="13"
+                             FontWeight="SemiBold"
+                             HorizontalAlignment="Center"
+                             VerticalAlignment="Center"
+                             Opacity="{Binding DayOpacity}"
+                             Foreground="White"
+                             IsVisible="{Binding !IsInPeriod}" />
+                  <TextBlock Text="{Binding DayNumber}"
+                             FontSize="13"
+                             FontWeight="Bold"
+                             Foreground="#1D4ED8"
+                             HorizontalAlignment="Center"
+                             VerticalAlignment="Center"
+                             IsVisible="{Binding IsInPeriod}" />
+                </Panel>
+              </Button>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+      </Border>
+
+      <Grid ColumnDefinitions="*,*,*" ColumnSpacing="8">
+        <Button Grid.Column="0" Classes="ts-link" Content="Today" Height="34"
+                Foreground="White"
+                Command="{Binding GoTodayCommand}" />
+        <Button Grid.Column="1" Classes="ts-link" Content="Clear" Height="34"
+                Foreground="White"
+                Command="{Binding ClearFilterCommand}" />
+        <Button Grid.Column="2" Classes="ts-primary" Content="Save" Height="34"
+                Command="{Binding SaveFilterCommand}" />
+      </Grid>
+    </StackPanel>
+  </Border>
+</UserControl>

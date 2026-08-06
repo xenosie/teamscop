@@ -27,16 +27,16 @@ User removes USB → ApplyBlock() again
 ## Admin TOTP (per staff)
 
 ```
-POST /api/lifecycle/totp/enroll          { staffUserId }   (Admin)
-GET  /api/lifecycle/totp/staff                             (Admin)
-GET  /api/lifecycle/totp/status/{staffUserId}              (Admin)
-GET  /api/lifecycle/totp/code/{staffUserId}                (Admin key generator)
+POST /api/lifecycle/totp/enroll          { staffUserId }   (Admin only)
+GET  /api/lifecycle/totp/staff                             (Admin, or usb/uninstall package)
+GET  /api/lifecycle/totp/status/{staffUserId}              (Admin, or usb/uninstall package)
+GET  /api/lifecycle/totp/code/{staffUserId}                (Admin, or usb_approval / uninstall_approval — PHASE8)
 POST /api/lifecycle/usb/verify           { deviceKey, totpCode, deviceInstanceId? }
 POST /api/lifecycle/usb/consume          { usbSessionTicket }
 POST /api/lifecycle/uninstall/verify     { deviceKey, totpCode }   (same secret)
 ```
 
-AdminHost commands: `staff` | `enroll-totp <id>` | `code <id>`
+Avalonia App TOTP UI is **deferred** — use AdminHost: `staff` | `enroll-totp <id>` | `code <id>`
 
 ## Hard boundary
 

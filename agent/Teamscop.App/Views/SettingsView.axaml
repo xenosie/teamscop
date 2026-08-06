@@ -1,0 +1,207 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:Teamscop.App.ViewModels"
+             x:Class="Teamscop.App.Views.SettingsView"
+             x:Name="RootSettings"
+             x:DataType="vm:SettingsViewModel"
+             Background="{StaticResource TsBackgroundBrush}">
+
+  <ScrollViewer Classes="ts-transparent-scroll"
+                VerticalScrollBarVisibility="Auto"
+                HorizontalScrollBarVisibility="Disabled">
+    <StackPanel Margin="28,20" Spacing="28" MaxWidth="720" HorizontalAlignment="Left">
+      <StackPanel Spacing="4">
+        <TextBlock Text="Settings"
+                   FontSize="22"
+                   FontWeight="SemiBold"
+                   Foreground="{StaticResource TsTextBrush}" />
+        <TextBlock Text="Company clock and policeman authorities. Changes sync to staff agents immediately."
+                   Classes="ts-muted"
+                   FontSize="13"
+                   TextWrapping="Wrap" />
+      </StackPanel>
+
+      <!-- Business time -->
+      <StackPanel Spacing="6">
+        <TextBlock Text="Business time"
+                   FontSize="16"
+                   FontWeight="SemiBold"
+                   Foreground="{StaticResource TsTextBrush}" />
+        <TextBlock Text="One synchronized timezone for every staff agent and admin (tracking, App history, lifecycle stamps)."
+                   Classes="ts-muted"
+                   FontSize="13"
+                   TextWrapping="Wrap" />
+      </StackPanel>
+
+      <StackPanel Spacing="6">
+        <TextBlock Text="Current sync"
+                   FontSize="14"
+                   FontWeight="SemiBold"
+                   Foreground="{StaticResource TsTextBrush}" />
+        <TextBlock Classes="ts-muted" FontSize="13">
+          <Run Text="Zone: " />
+          <Run Text="{Binding CurrentTimeZoneLabel}" />
+        </TextBlock>
+        <TextBlock Classes="ts-muted" FontSize="13">
+          <Run Text="Business local now: " />
+          <Run Text="{Binding CurrentBusinessLocal}" />
+        </TextBlock>
+        <TextBlock Classes="ts-muted" FontSize="13">
+          <Run Text="Synchronized: " />
+          <Run Text="{Binding IsSynchronized}" />
+          <Run Text=" · version " />
+          <Run Text="{Binding ClockVersion}" />
+        </TextBlock>
+        <TextBlock Classes="ts-muted" FontSize="13">
+          <Run Text="Updated: " />
+          <Run Text="{Binding UpdatedAtLabel}" />
+        </TextBlock>
+      </StackPanel>
+
+      <StackPanel Spacing="10">
+        <TextBlock Text="Declare business time"
+                   FontSize="14"
+                   FontWeight="SemiBold"
+                   Foreground="{StaticResource TsTextBrush}" />
+        <TextBlock Text="Pick the company timezone and the absolute business wall time that should be true right now. Staff agents lock to this timeline immediately."
+                   Classes="ts-muted"
+                   FontSize="12"
+                   TextWrapping="Wrap" />
+
+        <TextBlock Text="Time zone" Classes="ts-muted" FontSize="12" Margin="0,6,0,0" />
+        <ComboBox ItemsSource="{Binding TimeZoneOptions}"
+                  SelectedItem="{Binding SelectedTimeZoneId}"
+                  MinHeight="40"
+                  HorizontalAlignment="Stretch"
+                  IsEnabled="{Binding CanSave}" />
+
+        <Grid ColumnDefinitions="*,*,*" RowDefinitions="Auto,Auto,Auto,Auto" Margin="0,8,0,0">
+          <TextBlock Grid.Row="0" Grid.Column="0" Text="Year" Classes="ts-muted" FontSize="12" Margin="0,0,8,4" />
+          <TextBlock Grid.Row="0" Grid.Column="1" Text="Month" Classes="ts-muted" FontSize="12" Margin="0,0,8,4" />
+          <TextBlock Grid.Row="0" Grid.Column="2" Text="Day" Classes="ts-muted" FontSize="12" Margin="0,0,0,4" />
+          <TextBox Grid.Row="1" Grid.Column="0" Text="{Binding YearText}" Margin="0,0,8,10" IsEnabled="{Binding CanSave}" />
+          <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding MonthText}" Margin="0,0,8,10" IsEnabled="{Binding CanSave}" />
+          <TextBox Grid.Row="1" Grid.Column="2" Text="{Binding DayText}" Margin="0,0,0,10" IsEnabled="{Binding CanSave}" />
+
+          <TextBlock Grid.Row="2" Grid.Column="0" Text="Hour" Classes="ts-muted" FontSize="12" Margin="0,0,8,4" />
+          <TextBlock Grid.Row="2" Grid.Column="1" Text="Minute" Classes="ts-muted" FontSize="12" Margin="0,0,8,4" />
+          <TextBlock Grid.Row="2" Grid.Column="2" Text="Second" Classes="ts-muted" FontSize="12" Margin="0,0,0,4" />
+          <TextBox Grid.Row="3" Grid.Column="0" Text="{Binding HourText}" Margin="0,0,8,0" IsEnabled="{Binding CanSave}" />
+          <TextBox Grid.Row="3" Grid.Column="1" Text="{Binding MinuteText}" Margin="0,0,8,0" IsEnabled="{Binding CanSave}" />
+          <TextBox Grid.Row="3" Grid.Column="2" Text="{Binding SecondText}" IsEnabled="{Binding CanSave}" />
+        </Grid>
+
+        <StackPanel Orientation="Horizontal" Spacing="10" Margin="0,14,0,0">
+          <Button Classes="ts-primary"
+                  Content="Sync business clock"
+                  MinWidth="180"
+                  Height="40"
+                  Command="{Binding SyncBusinessClockCommand}"
+                  IsEnabled="{Binding CanSave}" />
+          <Button Classes="ts-link"
+                  Content="Use current time in zone"
+                  Height="40"
+                  Command="{Binding UseSuggestedNowCommand}"
+                  IsEnabled="{Binding CanSave}" />
+        </StackPanel>
+
+        <TextBlock Text="{Binding StatusMessage}"
+                   Foreground="{StaticResource TsAccentBrush}"
+                   FontSize="13"
+                   IsVisible="{Binding ShowStatus}"
+                   TextWrapping="Wrap" />
+        <TextBlock Text="{Binding ErrorMessage}"
+                   Foreground="#B91C1C"
+                   FontSize="13"
+                   IsVisible="{Binding ShowError}"
+                   TextWrapping="Wrap" />
+      </StackPanel>
+
+      <!-- Policemen -->
+      <Border Height="1" Background="{StaticResource TsBorderBrush}" Opacity="0.6" Margin="0,4,0,0" />
+
+      <StackPanel Spacing="10">
+        <StackPanel Spacing="4">
+          <TextBlock Text="Policemen &amp; authorities"
+                     FontSize="16"
+                     FontWeight="SemiBold"
+                     Foreground="{StaticResource TsTextBrush}" />
+          <TextBlock Text="Promote staff to policeman and grant authority packages. Packages apply company-wide and sync to their agent immediately via the engine."
+                     Classes="ts-muted"
+                     FontSize="13"
+                     TextWrapping="Wrap" />
+        </StackPanel>
+
+        <Button Classes="ts-primary"
+                Content="Add policeman"
+                MinWidth="160"
+                Height="40"
+                HorizontalAlignment="Left"
+                Command="{Binding AddPolicemanCommand}"
+                IsEnabled="{Binding CanSave}" />
+
+        <TextBlock Text="No policemen yet"
+                   Classes="ts-muted"
+                   FontSize="13"
+                   IsVisible="{Binding ShowPoliceEmpty}" />
+
+        <ItemsControl ItemsSource="{Binding Policemen}" IsVisible="{Binding HasPolicemen}">
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="vm:PolicemanRowViewModel">
+              <Border BorderBrush="{StaticResource TsBorderBrush}"
+                      BorderThickness="0,0,0,1"
+                      Padding="0,14">
+                <StackPanel Spacing="10">
+                  <TextBlock Text="{Binding Username}"
+                             FontSize="14"
+                             FontWeight="SemiBold"
+                             Foreground="{StaticResource TsTextBrush}" />
+                  <ItemsControl ItemsSource="{Binding Packages}">
+                    <ItemsControl.ItemsPanel>
+                      <ItemsPanelTemplate>
+                        <WrapPanel Orientation="Horizontal" />
+                      </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                      <DataTemplate x:DataType="vm:PackageToggleViewModel">
+                        <CheckBox Content="{Binding Label}"
+                                  IsChecked="{Binding IsEnabled}"
+                                  Margin="0,0,16,8"
+                                  MinWidth="180" />
+                      </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                  </ItemsControl>
+                  <StackPanel Orientation="Horizontal" Spacing="10">
+                    <Button Classes="ts-primary"
+                            Content="Save authorities"
+                            MinWidth="150"
+                            Height="36"
+                            Command="{Binding #RootSettings.((vm:SettingsViewModel)DataContext).SavePolicemanCommand}"
+                            CommandParameter="{Binding}" />
+                    <Button Classes="ts-toolbar"
+                            Content="Revoke"
+                            MinWidth="100"
+                            Height="36"
+                            Command="{Binding #RootSettings.((vm:SettingsViewModel)DataContext).RevokePolicemanCommand}"
+                            CommandParameter="{Binding}" />
+                  </StackPanel>
+                </StackPanel>
+              </Border>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+
+        <TextBlock Text="{Binding PoliceStatusMessage}"
+                   Foreground="{StaticResource TsAccentBrush}"
+                   FontSize="13"
+                   IsVisible="{Binding ShowPoliceStatus}"
+                   TextWrapping="Wrap" />
+        <TextBlock Text="{Binding PoliceErrorMessage}"
+                   Foreground="#B91C1C"
+                   FontSize="13"
+                   IsVisible="{Binding ShowPoliceError}"
+                   TextWrapping="Wrap" />
+      </StackPanel>
+    </StackPanel>
+  </ScrollViewer>
+</UserControl>

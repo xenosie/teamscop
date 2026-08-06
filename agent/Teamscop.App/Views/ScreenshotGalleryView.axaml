@@ -1,0 +1,108 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:Teamscop.App.ViewModels"
+             xmlns:views="clr-namespace:Teamscop.App.Views"
+             x:Class="Teamscop.App.Views.ScreenshotGalleryView"
+             x:DataType="vm:ScreenshotGalleryViewModel">
+
+  <DockPanel LastChildFill="True">
+    <StackPanel DockPanel.Dock="Top" Spacing="2" Margin="0,0,0,10"
+                IsVisible="{Binding !IsViewerOpen}">
+      <TextBlock Text="Screenshot"
+                 FontSize="22"
+                 FontWeight="SemiBold"
+                 Foreground="{StaticResource TsTextBrush}" />
+      <TextBlock Text="Period-filtered captures. Click a thumbnail to open the viewer."
+                 FontSize="13"
+                 Foreground="{StaticResource TsTextMutedBrush}" />
+      <views:ChainHealthBannerView DataContext="{Binding Chain}" Margin="0,8,0,0" />
+    </StackPanel>
+
+    <Panel>
+      <TextBlock Text="{Binding ErrorMessage}"
+                 IsVisible="{Binding ShowError}"
+                 Foreground="#B91C1C"
+                 FontSize="13"
+                 TextWrapping="Wrap"
+                 VerticalAlignment="Top" />
+      <TextBlock Text="{Binding EmptyMessage}"
+                 IsVisible="{Binding ShowEmpty}"
+                 Foreground="{StaticResource TsTextMutedBrush}"
+                 FontSize="13"
+                 VerticalAlignment="Top" />
+      <TextBlock Text="Loading…"
+                 IsVisible="{Binding IsLoading}"
+                 Foreground="{StaticResource TsTextMutedBrush}"
+                 FontSize="13"
+                 VerticalAlignment="Top" />
+
+      <ScrollViewer IsVisible="{Binding ShowGrid}"
+                    VerticalScrollBarVisibility="Visible"
+                    HorizontalScrollBarVisibility="Disabled"
+                    Padding="0,0,4,0"
+                    VerticalContentAlignment="Top">
+        <ItemsControl ItemsSource="{Binding Items}"
+                      VerticalAlignment="Top"
+                      HorizontalAlignment="Stretch">
+          <ItemsControl.ItemsPanel>
+            <ItemsPanelTemplate>
+              <UniformGrid Columns="6"
+                           VerticalAlignment="Top"
+                           HorizontalAlignment="Stretch" />
+            </ItemsPanelTemplate>
+          </ItemsControl.ItemsPanel>
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="vm:ScreenshotTileViewModel">
+              <Button Classes="ts-link"
+                      Margin="1"
+                      Padding="0"
+                      VerticalAlignment="Top"
+                      HorizontalAlignment="Stretch"
+                      HorizontalContentAlignment="Stretch"
+                      VerticalContentAlignment="Top"
+                      Command="{Binding OpenCommand}"
+                      AttachedToVisualTree="OnTileAttached">
+                <Border Background="{StaticResource TsSurfaceBrush}"
+                        BorderBrush="{StaticResource TsBorderBrush}"
+                        BorderThickness="1"
+                        Padding="0">
+                  <DockPanel LastChildFill="True">
+                    <TextBlock DockPanel.Dock="Bottom"
+                               Text="{Binding TimeLabel}"
+                               FontSize="9"
+                               Margin="2,1"
+                               Foreground="{StaticResource TsTextMutedBrush}"
+                               TextTrimming="CharacterEllipsis" />
+                    <Panel Height="72" Background="#EFF6FF">
+                      <TextBlock Text="…"
+                                 IsVisible="{Binding IsLoadingThumb}"
+                                 HorizontalAlignment="Center"
+                                 VerticalAlignment="Center"
+                                 FontSize="11"
+                                 Foreground="{StaticResource TsTextMutedBrush}" />
+                      <TextBlock Text="!"
+                                 IsVisible="{Binding ThumbFailed}"
+                                 HorizontalAlignment="Center"
+                                 VerticalAlignment="Center"
+                                 Foreground="#B91C1C"
+                                 FontSize="11" />
+                      <Image Source="{Binding Thumbnail}"
+                             Stretch="UniformToFill"
+                             IsVisible="{Binding HasThumbnail}"
+                             Margin="0" />
+                    </Panel>
+                  </DockPanel>
+                </Border>
+              </Button>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+      </ScrollViewer>
+
+      <!-- Fixed-viewport lightbox replaces the grid; zoom never resizes a window. -->
+      <Panel IsVisible="{Binding IsViewerOpen}">
+        <views:ScreenshotLightboxView DataContext="{Binding Viewer}" />
+      </Panel>
+    </Panel>
+  </DockPanel>
+</UserControl>

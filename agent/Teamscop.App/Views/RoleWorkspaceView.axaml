@@ -1,0 +1,342 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:Teamscop.App.ViewModels"
+             xmlns:views="clr-namespace:Teamscop.App.Views"
+             xmlns:heroIcons="clr-namespace:HeroIconsAvalonia.Controls;assembly=HeroIconsAvalonia"
+             x:Class="Teamscop.App.Views.RoleWorkspaceView"
+             x:Name="Root"
+             x:DataType="vm:WorkspaceViewModel"
+             Background="{StaticResource TsBackgroundBrush}">
+
+  <Grid ColumnDefinitions="220,Auto,*">
+    <!-- Sidebar -->
+    <Border Grid.Column="0"
+            Background="{StaticResource TsSurfaceBrush}"
+            BorderBrush="{StaticResource TsAccentBrush}"
+            BorderThickness="0,0,1,0">
+      <DockPanel>
+        <StackPanel DockPanel.Dock="Top"
+                    Spacing="8"
+                    Margin="0,20,0,16"
+                    HorizontalAlignment="Center">
+          <Panel Width="72" Height="72" HorizontalAlignment="Center">
+            <Ellipse Width="72" Height="72"
+                     Stroke="{StaticResource TsAccentBrush}"
+                     StrokeThickness="1.5"
+                     Fill="Transparent" />
+            <Ellipse Name="CompanyAvatarCircle"
+                     Width="62" Height="62"
+                     HorizontalAlignment="Center"
+                     VerticalAlignment="Center"
+                     Stroke="{StaticResource TsAccentBrush}"
+                     StrokeThickness="1">
+              <Ellipse.Fill>
+                <LinearGradientBrush StartPoint="0%,0%" EndPoint="100%,100%">
+                  <GradientStop Color="#DBEAFE" Offset="0" />
+                  <GradientStop Color="#93C5FD" Offset="1" />
+                </LinearGradientBrush>
+              </Ellipse.Fill>
+            </Ellipse>
+            <heroIcons:HeroIcon Name="CompanyAvatarPlaceholder"
+                                Type="BuildingOffice2" Kind="Outline" Width="22" Height="22"
+                                Foreground="{StaticResource TsAccentBrush}"
+                                HorizontalAlignment="Center"
+                                VerticalAlignment="Center" />
+          </Panel>
+          <TextBlock Text="{Binding CompanyName}"
+                     FontSize="14"
+                     FontWeight="SemiBold"
+                     Foreground="{StaticResource TsTextBrush}"
+                     HorizontalAlignment="Center"
+                     TextAlignment="Center"
+                     TextWrapping="Wrap"
+                     MaxWidth="196" />
+          <Border Background="{StaticResource TsAccentSoftBrush}"
+                  BorderBrush="{StaticResource TsAccentBrush}"
+                  BorderThickness="1"
+                  Padding="10,4"
+                  HorizontalAlignment="Center">
+            <TextBlock Text="{Binding RoleLabel}"
+                       FontSize="11"
+                       FontWeight="SemiBold"
+                       Foreground="{StaticResource TsAccentBrush}" />
+          </Border>
+          <TextBlock Text="{Binding TeamName}"
+                     Classes="ts-muted"
+                     FontSize="12"
+                     HorizontalAlignment="Center"
+                     IsVisible="{Binding HasTeamName}"
+                     TextTrimming="CharacterEllipsis"
+                     MaxWidth="196" />
+          <TextBlock Text="{Binding Subtitle}"
+                     Classes="ts-muted"
+                     FontSize="11"
+                     HorizontalAlignment="Center"
+                     TextAlignment="Center"
+                     TextWrapping="Wrap"
+                     MaxWidth="196"
+                     Margin="8,4,8,0" />
+        </StackPanel>
+
+        <StackPanel Spacing="0">
+          <Grid>
+            <Button Name="BtnStaffs"
+                    Classes="ts-sidebar"
+                    Padding="18,12,40,12"
+                    Command="{Binding NavigateCommand}"
+                    CommandParameter="Staffs">
+              <StackPanel Orientation="Horizontal" Spacing="12">
+                <heroIcons:HeroIcon Name="IconStaffs" Type="Users" Kind="Outline" Width="20" Height="20"
+                                    Foreground="{StaticResource TsAccentBrush}" />
+                <TextBlock Text="{Binding StaffListTitle}" VerticalAlignment="Center" FontWeight="SemiBold" />
+              </StackPanel>
+            </Button>
+            <Button Classes="ts-link"
+                    Width="36" Height="40"
+                    HorizontalAlignment="Right"
+                    VerticalAlignment="Center"
+                    Margin="0,0,6,0"
+                    Command="{Binding ToggleStaffsExpandedCommand}">
+              <Panel Width="16" Height="16">
+                <heroIcons:HeroIcon Name="IconStaffsChevron"
+                                    Type="ChevronDown" Kind="Outline" Width="16" Height="16"
+                                    Foreground="{StaticResource TsAccentBrush}"
+                                    IsVisible="{Binding !IsStaffsExpanded}" />
+                <heroIcons:HeroIcon Name="IconStaffsChevronDown"
+                                    Type="ChevronUp" Kind="Outline" Width="16" Height="16"
+                                    Foreground="{StaticResource TsAccentBrush}"
+                                    IsVisible="{Binding IsStaffsExpanded}" />
+              </Panel>
+            </Button>
+          </Grid>
+
+          <StackPanel IsVisible="{Binding IsStaffsExpanded}" Margin="0,0,0,4">
+            <TextBlock Text="Loading…" Classes="ts-muted" FontSize="12" Margin="44,4,16,8"
+                       IsVisible="{Binding IsLoadingStaff}" />
+            <TextBlock Text="{Binding EmptyStaffMessage}" Classes="ts-muted" FontSize="12" Margin="44,4,16,8"
+                       IsVisible="{Binding ShowStaffEmpty}" />
+            <ScrollViewer Classes="ts-transparent-scroll"
+                          MaxHeight="280"
+                          VerticalScrollBarVisibility="Auto"
+                          IsVisible="{Binding HasStaff}">
+              <ItemsControl ItemsSource="{Binding StaffItems}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="vm:StaffListItemViewModel">
+                    <Button Classes="ts-staff-row"
+                            Classes.selected="{Binding IsSelected}"
+                            HorizontalAlignment="Stretch"
+                            Command="{Binding #Root.((vm:WorkspaceViewModel)DataContext).SelectStaffCommand}"
+                            CommandParameter="{Binding}">
+                      <Grid ColumnDefinitions="Auto,*" MinHeight="28">
+                        <Border Width="28" Height="28" Classes="ts-circle-avatar" ClipToBounds="True"
+                                Background="{StaticResource TsAccentSoftBrush}">
+                          <Panel>
+                            <heroIcons:HeroIcon Type="User" Kind="Outline" Width="14" Height="14"
+                                                Foreground="{StaticResource TsAccentBrush}"
+                                                HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                IsVisible="{Binding !HasAvatar}" />
+                            <Image Source="{Binding Avatar}" Stretch="UniformToFill"
+                                   IsVisible="{Binding HasAvatar}" />
+                          </Panel>
+                        </Border>
+                        <TextBlock Grid.Column="1" Text="{Binding Name}" Margin="10,0,0,0"
+                                   VerticalAlignment="Center" FontSize="13" FontWeight="Medium"
+                                   TextTrimming="CharacterEllipsis" />
+                      </Grid>
+                    </Button>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </ScrollViewer>
+          </StackPanel>
+
+          <Button Name="BtnCodes"
+                  Classes="ts-sidebar"
+                  IsVisible="{Binding ShowCodesNav}"
+                  Command="{Binding NavigateCommand}"
+                  CommandParameter="Codes">
+            <StackPanel Orientation="Horizontal" Spacing="12">
+              <heroIcons:HeroIcon Name="IconCodes" Type="Key" Kind="Outline" Width="20" Height="20"
+                                  Foreground="{StaticResource TsAccentBrush}" />
+              <TextBlock Text="Codes" VerticalAlignment="Center" FontWeight="SemiBold" />
+            </StackPanel>
+          </Button>
+
+          <Button Name="BtnTeams"
+                  Classes="ts-sidebar"
+                  IsVisible="{Binding ShowTeamsNav}"
+                  Command="{Binding NavigateCommand}"
+                  CommandParameter="Teams">
+            <StackPanel Orientation="Horizontal" Spacing="12">
+              <heroIcons:HeroIcon Name="IconTeams" Type="UserGroup" Kind="Outline" Width="20" Height="20"
+                                  Foreground="{StaticResource TsAccentBrush}" />
+              <TextBlock Text="Teams" VerticalAlignment="Center" FontWeight="SemiBold" />
+            </StackPanel>
+          </Button>
+        </StackPanel>
+      </DockPanel>
+    </Border>
+
+    <!-- Detail sub-sidebar -->
+    <Border Grid.Column="1"
+            Width="200"
+            IsVisible="{Binding HasSelectedStaff}"
+            Background="{StaticResource TsSurfaceBrush}"
+            BorderBrush="{StaticResource TsAccentBrush}"
+            BorderThickness="0,0,1,0">
+      <DockPanel>
+        <StackPanel DockPanel.Dock="Top" Spacing="10" Margin="0,20,0,16" HorizontalAlignment="Center">
+          <Border Width="56" Height="56" Classes="ts-circle-avatar" ClipToBounds="True"
+                  Background="{StaticResource TsAccentSoftBrush}">
+            <Panel>
+              <heroIcons:HeroIcon Type="User" Kind="Outline" Width="22" Height="22"
+                                  Foreground="{StaticResource TsAccentBrush}"
+                                  HorizontalAlignment="Center" VerticalAlignment="Center"
+                                  IsVisible="{Binding !SelectedStaff.HasAvatar}" />
+              <Image Source="{Binding SelectedStaff.Avatar}" Stretch="UniformToFill"
+                     IsVisible="{Binding SelectedStaff.HasAvatar}" />
+            </Panel>
+          </Border>
+          <TextBlock Text="{Binding SelectedStaff.Name}" FontSize="14" FontWeight="SemiBold"
+                     Foreground="{StaticResource TsTextBrush}" HorizontalAlignment="Center"
+                     TextAlignment="Center" TextWrapping="Wrap" MaxWidth="168" />
+        </StackPanel>
+        <StackPanel Spacing="0">
+          <Button Name="BtnDetailSummary" Classes="ts-staff-detail"
+                  IsVisible="{Binding CanShowSummary}"
+                  Command="{Binding NavigateStaffDetailCommand}" CommandParameter="Summary">
+            <StackPanel Orientation="Horizontal" Spacing="10">
+              <heroIcons:HeroIcon Name="IconDetailSummary" Type="DocumentText" Kind="Outline"
+                                  Width="18" Height="18" Foreground="{StaticResource TsAccentBrush}" />
+              <TextBlock Text="Summary" VerticalAlignment="Center" FontWeight="SemiBold" />
+            </StackPanel>
+          </Button>
+          <Button Name="BtnDetailScreenshot" Classes="ts-staff-detail"
+                  IsVisible="{Binding CanShowScreenshot}"
+                  Command="{Binding NavigateStaffDetailCommand}" CommandParameter="Screenshot">
+            <StackPanel Orientation="Horizontal" Spacing="10">
+              <heroIcons:HeroIcon Name="IconDetailScreenshot" Type="Camera" Kind="Outline"
+                                  Width="18" Height="18" Foreground="{StaticResource TsAccentBrush}" />
+              <TextBlock Text="Screenshot" VerticalAlignment="Center" FontWeight="SemiBold" />
+            </StackPanel>
+          </Button>
+          <Button Name="BtnDetailBrowsing" Classes="ts-staff-detail"
+                  IsVisible="{Binding CanShowBrowsing}"
+                  Command="{Binding NavigateStaffDetailCommand}" CommandParameter="BrowsingHistory">
+            <StackPanel Orientation="Horizontal" Spacing="10">
+              <heroIcons:HeroIcon Name="IconDetailBrowsing" Type="GlobeAlt" Kind="Outline"
+                                  Width="18" Height="18" Foreground="{StaticResource TsAccentBrush}" />
+              <TextBlock Text="Browsing History" VerticalAlignment="Center" FontWeight="SemiBold" />
+            </StackPanel>
+          </Button>
+          <Button Name="BtnDetailTimeTrack" Classes="ts-staff-detail"
+                  IsVisible="{Binding CanShowTimeTrack}"
+                  Command="{Binding NavigateStaffDetailCommand}" CommandParameter="TimeTrack">
+            <StackPanel Orientation="Horizontal" Spacing="10">
+              <heroIcons:HeroIcon Name="IconDetailTimeTrack" Type="Clock" Kind="Outline"
+                                  Width="18" Height="18" Foreground="{StaticResource TsAccentBrush}" />
+              <TextBlock Text="Time Track" VerticalAlignment="Center" FontWeight="SemiBold" />
+            </StackPanel>
+          </Button>
+          <Button Name="BtnDetailAppHistory" Classes="ts-staff-detail"
+                  IsVisible="{Binding ShowAppHistoryTab}"
+                  Command="{Binding NavigateStaffDetailCommand}" CommandParameter="AppHistory">
+            <StackPanel Orientation="Horizontal" Spacing="10">
+              <heroIcons:HeroIcon Name="IconDetailAppHistory" Type="QueueList" Kind="Outline"
+                                  Width="18" Height="18" Foreground="{StaticResource TsAccentBrush}" />
+              <TextBlock Text="App history" VerticalAlignment="Center" FontWeight="SemiBold" />
+            </StackPanel>
+          </Button>
+        </StackPanel>
+      </DockPanel>
+    </Border>
+
+    <!-- Content -->
+    <Panel Grid.Column="2" Background="{StaticResource TsBackgroundBrush}">
+      <Panel IsVisible="{Binding IsCodes}">
+        <views:TotpCodesView DataContext="{Binding TotpCodes}" />
+      </Panel>
+      <Panel IsVisible="{Binding IsTeams}">
+        <views:TeamsBoardView DataContext="{Binding TeamsBoard}" />
+      </Panel>
+
+      <Panel IsVisible="{Binding HasSelectedStaff}" Margin="28">
+        <Panel Margin="0,8,48,0">
+          <Panel IsVisible="{Binding IsStaffDetailSummary}">
+            <views:StaffSummaryView DataContext="{Binding StaffSummary}" />
+          </Panel>
+          <Panel IsVisible="{Binding IsStaffDetailScreenshot}">
+            <views:ScreenshotGalleryView DataContext="{Binding Screenshots}" />
+          </Panel>
+          <Panel IsVisible="{Binding IsStaffDetailBrowsingHistory}">
+            <views:BrowsingHistoryView DataContext="{Binding Browsing}" />
+          </Panel>
+          <Panel IsVisible="{Binding IsStaffDetailTimeTrack}">
+            <views:TimeTrackView DataContext="{Binding TimeTrack}" />
+          </Panel>
+          <DockPanel IsVisible="{Binding IsStaffDetailAppHistory}" LastChildFill="True">
+            <StackPanel DockPanel.Dock="Top" Spacing="4" Margin="0,0,0,16">
+              <TextBlock Text="App history" FontSize="22" FontWeight="SemiBold"
+                         Foreground="{StaticResource TsTextBrush}" />
+              <TextBlock Text="Lifecycle history for this staff member."
+                         FontSize="13" Foreground="{StaticResource TsTextMutedBrush}" />
+            </StackPanel>
+            <Panel>
+              <TextBlock Text="{Binding AppHistory.ErrorMessage}"
+                         IsVisible="{Binding AppHistory.ShowError}"
+                         Foreground="#B91C1C" FontSize="13" TextWrapping="Wrap" />
+              <TextBlock Text="{Binding AppHistory.EmptyMessage}"
+                         IsVisible="{Binding AppHistory.ShowEmpty}"
+                         Foreground="{StaticResource TsTextMutedBrush}" FontSize="13" />
+              <TextBlock Text="Loading…" IsVisible="{Binding AppHistory.IsLoading}"
+                         Foreground="{StaticResource TsTextMutedBrush}" FontSize="13" />
+              <ScrollViewer Classes="ts-transparent-scroll"
+                            IsVisible="{Binding AppHistory.HasItems}"
+                            VerticalScrollBarVisibility="Auto">
+                <ItemsControl ItemsSource="{Binding AppHistory.Items}">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="vm:AppHistoryRowViewModel">
+                      <Grid ColumnDefinitions="140,*" Margin="0,0,0,14">
+                        <TextBlock Text="{Binding TimeLabel}" FontSize="12"
+                                   Foreground="{StaticResource TsTextMutedBrush}" Margin="0,2,16,0" />
+                        <StackPanel Grid.Column="1" Spacing="2">
+                          <TextBlock Text="{Binding Title}" FontSize="14" FontWeight="SemiBold"
+                                     Foreground="{StaticResource TsTextBrush}" />
+                          <TextBlock Text="{Binding Detail}" FontSize="13" TextWrapping="Wrap"
+                                     Foreground="{StaticResource TsTextMutedBrush}" />
+                        </StackPanel>
+                      </Grid>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+              </ScrollViewer>
+            </Panel>
+          </DockPanel>
+        </Panel>
+
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Top"
+                    Spacing="10" ZIndex="20">
+          <TextBlock Text="{Binding PeriodFilter.RangeLabel}" FontSize="13"
+                     VerticalAlignment="Center" Foreground="{StaticResource TsTextMutedBrush}" />
+          <Button Classes="ts-link" Width="40" Height="40" Padding="0"
+                  Command="{Binding PeriodFilter.ToggleCalendarCommand}">
+            <heroIcons:HeroIcon Type="CalendarDays" Kind="Outline" Width="22" Height="22"
+                                Foreground="{StaticResource TsAccentBrush}" />
+          </Button>
+        </StackPanel>
+        <Border HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,48,0,0" ZIndex="30"
+                IsVisible="{Binding PeriodFilter.IsCalendarOpen}">
+          <views:StaffPeriodCalendarView DataContext="{Binding PeriodFilter}" />
+        </Border>
+      </Panel>
+
+      <TextBlock Text="Select a staff member to view tracking."
+                 Classes="ts-muted"
+                 FontSize="14"
+                 Margin="28"
+                 IsVisible="{Binding ShowStaffPrompt}"
+                 VerticalAlignment="Center"
+                 HorizontalAlignment="Center" />
+    </Panel>
+  </Grid>
+</UserControl>

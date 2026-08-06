@@ -4,13 +4,31 @@ using Teamscop.Engine.Lifecycle;
 namespace Teamscop.App.Services;
 
 /// <summary>
-/// Decides whether this machine already has a registered Admin session.
+/// Decides whether this machine already has a registered Admin or Staff session
+/// that can open the dashboard (admins, team leaders, policemen).
 /// </summary>
 public static class AdminSessionGate
 {
     public static bool TryLoadRegisteredAdmin(out LocalAgentState state, out string statePath)
+        => TryLoadRegisteredSession(out state, out statePath);
+
+    public static bool TryLoadRegisteredSession(out LocalAgentState state, out string statePath)
     {
-        var store = new LocalAgentStore(AgentRole.Admin);
+        if (TryLoadRole(AgentRole.Admin, requireAdminRole: true, out state, out statePath))
+        {
+            return true;
+        }
+
+        return TryLoadRole(AgentRole.Staff, requireAdminRole: false, out state, out statePath);
+    }
+
+    private static bool TryLoadRole(
+        AgentRole role,
+        bool requireAdminRole,
+        out LocalAgentState state,
+        out string statePath)
+    {
+        var store = new LocalAgentStore(role);
         statePath = store.StatePath;
         state = store.Load();
 
@@ -19,7 +37,14 @@ public static class AdminSessionGate
             return false;
         }
 
-        if (!string.Equals(state.Role, "Admin", StringComparison.OrdinalIgnoreCase))
+        if (requireAdminRole)
+        {
+            if (!AppSessionStore.IsAdminRole(state.Role))
+            {
+                return false;
+            }
+        }
+        else if (AppSessionStore.IsAdminRole(state.Role))
         {
             return false;
         }

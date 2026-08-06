@@ -1,5 +1,6 @@
 using Avalonia.Controls;
 using Avalonia.Input;
+using Avalonia.Threading;
 
 namespace Teamscop.App.Views;
 
@@ -35,6 +36,17 @@ public partial class TeamNameDialog : Window
     }
 
     public static async Task<string?> PromptAsync(Window owner)
+    {
+        if (!Dispatcher.UIThread.CheckAccess())
+        {
+            return await Dispatcher.UIThread.InvokeAsync(async () =>
+                await PromptCoreAsync(owner).ConfigureAwait(true));
+        }
+
+        return await PromptCoreAsync(owner);
+    }
+
+    private static async Task<string?> PromptCoreAsync(Window owner)
     {
         var dlg = new TeamNameDialog();
         return await dlg.ShowDialog<string?>(owner);

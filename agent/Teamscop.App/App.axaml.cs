@@ -14,10 +14,25 @@ public partial class App : Application
     {
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
-            // Registered admin machine → dashboard. Otherwise → auth.
-            desktop.MainWindow = AdminSessionGate.TryLoadRegisteredAdmin(out var state, out _)
-                ? new MainWindow(state)
-                : new AuthWindow();
+            if (AdminSessionGate.TryLoadRegisteredSession(out var state, out _))
+            {
+                AppSessionStore.SetActive(state.Role);
+                if (AppSessionStore.IsAdminRole(state.Role))
+                {
+                    StaffShellLifetime.EnsureAdminShutdownMode();
+                }
+                else
+                {
+                    StaffShellLifetime.EnsureStaffShutdownMode();
+                }
+
+                // Admin → MainWindow; leader/police/officer → role workspace; plain staff → sticker.
+                desktop.MainWindow = RoleShellRouter.CreateWindowAsync(state).GetAwaiter().GetResult();
+            }
+            else
+            {
+                desktop.MainWindow = new AuthWindow();
+            }
         }
 
         base.OnFrameworkInitializationCompleted();

@@ -69,9 +69,10 @@ public sealed class TrackingQueryService(
             q = q.Where(e => e.OccurredAt >= from);
         }
 
+        // `to` is exclusive (end of period = next local midnight / 24:00 of last day).
         if (to is not null)
         {
-            q = q.Where(e => e.OccurredAt <= to);
+            q = q.Where(e => e.OccurredAt < to);
         }
 
         if (!string.IsNullOrWhiteSpace(eventType))

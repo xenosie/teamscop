@@ -5,6 +5,9 @@
 | Requirement | Implementation |
 |---|---|
 | Time track via mouse/keyboard | `TimeTrackEngine` uses Win32 `GetLastInputInfo` (idle-based). Hysteresis: active ≤60s idle → Working; ≥180s idle → Rest. No per-key hooks (avoids slowing input). |
+| Staff self sticker | Plain staff (and leaders/police after closing workspace) get a floating Avalonia bar (`TimeTrackStickerWindow`): last 24h working/rest/gap, no numbers, drag to move, no close. `GET /api/tracking/timetrack` allows self without `view_timetrack`. |
+| Session capture | `Teamscop.SessionHelper` captures in the user session; Service vaults via named pipe. In-process capture remains until helper connects. |
+| Chain health UI | `GET /api/tracking/chain/{staffUserId}` + banner on Screenshot / Time Track / Browsing when offline, helper down, or break after sequence N. |
 | Screenshot on admin signal | Admin `PUT /api/tracking/config/{staffId}` → SignalR `TrackingConfigUpdated` to staff immediately. |
 | Quality budgets | Low ≤30KB, Med ≤50KB, High ≤70KB JPEG via binary-search quality; all displays captured. |
 | Chrome history all profiles | `ChromeHistoryWatcher` copies each profile `History` DB and reads visits after install watermark. |

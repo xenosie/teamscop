@@ -11,6 +11,9 @@ public sealed class ChromeVisit
     public required string Title { get; init; }
     public required DateTimeOffset VisitedAt { get; init; }
     public required long VisitId { get; init; }
+
+    /// <summary>Registrable site key for admin aggregation, e.g. https://github.com</summary>
+    public string Domain { get; init; } = "";
 }
 
 /// <summary>
@@ -116,7 +119,8 @@ public sealed class ChromeHistoryWatcher
                     Url = url,
                     Title = title,
                     VisitId = visitId,
-                    VisitedAt = ChromeTimeToDateTime(chromeTime)
+                    VisitedAt = ChromeTimeToDateTime(chromeTime),
+                    Domain = BrowseDomain.FromUrl(url)
                 });
             }
 

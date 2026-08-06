@@ -83,7 +83,7 @@ public sealed class TrackingConfigService(
         StaffUserId = staff.Id,
         CompanyId = staff.CompanyId,
         ScreenshotQuality = nameof(ScreenshotQuality.Medium),
-        ScreenshotPeriodSeconds = 300,
+        ScreenshotPeriodSeconds = 180, // default 3 minutes
         TimeTrackEnabled = true,
         BrowserHistoryEnabled = true,
         ScreenshotEnabled = true,

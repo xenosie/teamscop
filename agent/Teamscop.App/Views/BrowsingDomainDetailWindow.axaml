@@ -1,0 +1,87 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="clr-namespace:Teamscop.App.ViewModels"
+        xmlns:controls="clr-namespace:Teamscop.App.Controls"
+        x:Class="Teamscop.App.Views.BrowsingDomainDetailWindow"
+        x:DataType="vm:BrowsingDomainDetailViewModel"
+        Title="Browsing detail"
+        Icon="/Assets/teamscop-icon.ico"
+        Width="820" Height="560"
+        MinWidth="560" MinHeight="360"
+        WindowStartupLocation="CenterOwner"
+        CanResize="True"
+        SystemDecorations="None"
+        ExtendClientAreaToDecorationsHint="True"
+        ExtendClientAreaChromeHints="NoChrome"
+        Background="{StaticResource TsBackgroundBrush}"
+        BorderBrush="{StaticResource TsAccentBrush}"
+        BorderThickness="1">
+
+  <DockPanel>
+    <controls:TsTitleBar DockPanel.Dock="Top" Title="{Binding Title}" />
+
+    <Border DockPanel.Dock="Bottom"
+            Background="{StaticResource TsSurfaceBrush}"
+            BorderBrush="{StaticResource TsBorderBrush}"
+            BorderThickness="0,1,0,0"
+            Padding="16,12">
+      <Button Classes="ts-primary" Content="Close" Height="36" MinWidth="96"
+              HorizontalAlignment="Right"
+              Click="OnCloseClick" />
+    </Border>
+
+    <DockPanel Margin="20" LastChildFill="True">
+      <StackPanel DockPanel.Dock="Top" Spacing="4" Margin="0,0,0,14">
+        <TextBlock Text="{Binding Title}"
+                   FontSize="20"
+                   FontWeight="SemiBold"
+                   Foreground="{StaticResource TsTextBrush}" />
+        <TextBlock Text="{Binding Subtitle}"
+                   FontSize="13"
+                   Foreground="{StaticResource TsTextMutedBrush}" />
+      </StackPanel>
+
+      <Panel>
+        <TextBlock Text="{Binding ErrorMessage}"
+                   IsVisible="{Binding ShowError}"
+                   Foreground="#B91C1C"
+                   TextWrapping="Wrap" />
+        <TextBlock Text="Loading…"
+                   IsVisible="{Binding IsLoading}"
+                   Foreground="{StaticResource TsTextMutedBrush}" />
+        <TextBlock Text="No visits for this domain."
+                   IsVisible="{Binding ShowEmpty}"
+                   Foreground="{StaticResource TsTextMutedBrush}" />
+
+        <ScrollViewer Classes="ts-transparent-scroll"
+                      IsVisible="{Binding HasItems}"
+                      VerticalScrollBarVisibility="Auto">
+          <ItemsControl ItemsSource="{Binding Visits}">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:BrowsingVisitRowViewModel">
+                <Grid ColumnDefinitions="140,*" Margin="0,0,0,14">
+                  <TextBlock Grid.Column="0"
+                             Text="{Binding TimeLabel}"
+                             FontSize="12"
+                             Foreground="{StaticResource TsTextMutedBrush}"
+                             Margin="0,2,16,0" />
+                  <StackPanel Grid.Column="1" Spacing="2">
+                    <TextBlock Text="{Binding Title}"
+                               FontSize="14"
+                               FontWeight="SemiBold"
+                               Foreground="{StaticResource TsTextBrush}"
+                               TextWrapping="Wrap" />
+                    <TextBlock Text="{Binding Url}"
+                               FontSize="13"
+                               Foreground="{StaticResource TsAccentBrush}"
+                               TextWrapping="Wrap" />
+                  </StackPanel>
+                </Grid>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </ScrollViewer>
+      </Panel>
+    </DockPanel>
+  </DockPanel>
+</Window>

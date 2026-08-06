@@ -1,4 +1,6 @@
 using System.Runtime.InteropServices;
+using System.Text.Json;
+using System.Text.Json.Nodes;
 using Teamscop.Engine.Sync;
 
 namespace Teamscop.Engine.Usb;
@@ -16,6 +18,7 @@ public sealed class UsbSessionController : IAsyncDisposable
     private readonly IOutboxQueue? _outbox;
     private readonly Func<string?> _deviceKey;
     private readonly Func<string> _apiBase;
+    private readonly Func<(string BusinessLocal, string TimeZoneId, long ClockVersion, bool Synchronized)?>? _businessStamp;
     private readonly SemaphoreSlim _gate = new(1, 1);
 
     private string? _sessionInstanceId;
@@ -29,7 +32,8 @@ public sealed class UsbSessionController : IAsyncDisposable
         IUsbAccessVerifier verifier,
         Func<string?> deviceKey,
         Func<string> apiBase,
-        IOutboxQueue? outbox = null)
+        IOutboxQueue? outbox = null,
+        Func<(string BusinessLocal, string TimeZoneId, long ClockVersion, bool Synchronized)?>? businessStamp = null)
     {
         _policy = policy;
         _watcher = watcher;
@@ -38,6 +42,7 @@ public sealed class UsbSessionController : IAsyncDisposable
         _deviceKey = deviceKey;
         _apiBase = apiBase;
         _outbox = outbox;
+        _businessStamp = businessStamp;
     }
 
     public UsbSessionState State => _state;
@@ -228,7 +233,23 @@ public sealed class UsbSessionController : IAsyncDisposable
             return Task.CompletedTask;
         }
 
-        return _outbox.EnqueueAsync(OutboxItem.Create(type, payload), ct);
+        var stamp = _businessStamp?.Invoke();
+        if (stamp is not { } biz)
+        {
+            return _outbox.EnqueueAsync(OutboxItem.Create(type, payload), ct);
+        }
+
+        var node = JsonSerializer.SerializeToNode(payload)?.AsObject()
+                   ?? new JsonObject();
+        node["businessLocal"] = biz.BusinessLocal;
+        node["businessTimeZoneId"] = biz.TimeZoneId;
+        node["businessClockVersion"] = biz.ClockVersion;
+        node["businessSynchronized"] = biz.Synchronized;
+        return _outbox.EnqueueAsync(new OutboxItem
+        {
+            EventType = type,
+            PayloadJson = node.ToJsonString()
+        }, ct);
     }
 
     public static IRemovableStoragePolicy CreatePolicy()

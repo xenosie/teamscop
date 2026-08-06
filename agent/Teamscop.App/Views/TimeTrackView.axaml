@@ -1,0 +1,89 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:Teamscop.App.ViewModels"
+             xmlns:views="clr-namespace:Teamscop.App.Views"
+             x:Class="Teamscop.App.Views.TimeTrackView"
+             x:DataType="vm:TimeTrackViewModel">
+
+  <DockPanel LastChildFill="True">
+    <StackPanel DockPanel.Dock="Top" Spacing="4" Margin="0,0,0,16">
+      <TextBlock Text="Time Track"
+                 FontSize="22"
+                 FontWeight="SemiBold"
+                 Foreground="{StaticResource TsTextBrush}" />
+      <TextBlock Text="Work / rest timeline for the admin-selected business period."
+                 FontSize="13"
+                 Foreground="{StaticResource TsTextMutedBrush}"
+                 TextWrapping="Wrap" />
+      <views:ChainHealthBannerView DataContext="{Binding Chain}" Margin="0,4,0,0" />
+    </StackPanel>
+
+    <StackPanel Spacing="14">
+      <TextBlock Text="{Binding ErrorMessage}"
+                 IsVisible="{Binding ShowError}"
+                 Foreground="#B91C1C"
+                 FontSize="13"
+                 TextWrapping="Wrap" />
+      <TextBlock Text="{Binding EmptyMessage}"
+                 IsVisible="{Binding ShowEmpty}"
+                 Foreground="{StaticResource TsTextMutedBrush}"
+                 FontSize="13" />
+      <TextBlock Text="Loading…"
+                 IsVisible="{Binding IsLoading}"
+                 Foreground="{StaticResource TsTextMutedBrush}"
+                 FontSize="13" />
+
+      <StackPanel IsVisible="{Binding HasTimeline}" Spacing="10">
+        <TextBlock Text="{Binding PeriodCaption}"
+                   FontSize="13"
+                   FontWeight="SemiBold"
+                   Foreground="{StaticResource TsTextBrush}" />
+
+        <!-- Timeline bar box: left/right ends = selected business period. -->
+        <Border Background="#F8FAFC"
+                BorderBrush="{StaticResource TsBorderBrush}"
+                BorderThickness="1"
+                Padding="0"
+                Height="52"
+                ClipToBounds="True"
+                SizeChanged="OnBarSizeChanged">
+          <Grid Name="TimelineBar" />
+        </Border>
+
+        <Grid ColumnDefinitions="*,*">
+          <TextBlock Grid.Column="0"
+                     Text="{Binding LeftLabel}"
+                     FontSize="12"
+                     Foreground="{StaticResource TsTextMutedBrush}"
+                     HorizontalAlignment="Left" />
+          <TextBlock Grid.Column="1"
+                     Text="{Binding RightLabel}"
+                     FontSize="12"
+                     Foreground="{StaticResource TsTextMutedBrush}"
+                     HorizontalAlignment="Right" />
+        </Grid>
+
+        <StackPanel Orientation="Horizontal" Spacing="18" Margin="0,4,0,0">
+          <StackPanel Orientation="Horizontal" Spacing="6">
+            <Border Width="14" Height="14" Background="#16A34A" />
+            <TextBlock Text="Working" FontSize="12" Foreground="{StaticResource TsTextBrush}" />
+            <TextBlock Text="{Binding WorkingSummary}" FontSize="12" Classes="ts-muted" />
+          </StackPanel>
+          <StackPanel Orientation="Horizontal" Spacing="6">
+            <Border Width="14" Height="14" Background="#DC2626" />
+            <TextBlock Text="Rest" FontSize="12" Foreground="{StaticResource TsTextBrush}" />
+            <TextBlock Text="{Binding RestSummary}" FontSize="12" Classes="ts-muted" />
+          </StackPanel>
+          <StackPanel Orientation="Horizontal" Spacing="6">
+            <Border Width="14" Height="14"
+                    Background="Transparent"
+                    BorderBrush="{StaticResource TsBorderBrush}"
+                    BorderThickness="1" />
+            <TextBlock Text="No heartbeat" FontSize="12" Foreground="{StaticResource TsTextBrush}" />
+            <TextBlock Text="{Binding GapSummary}" FontSize="12" Classes="ts-muted" />
+          </StackPanel>
+        </StackPanel>
+      </StackPanel>
+    </StackPanel>
+  </DockPanel>
+</UserControl>

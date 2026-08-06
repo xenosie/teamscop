@@ -139,7 +139,9 @@ public sealed class LifecycleService(AppDbContext db, IAuthorityService authorit
         if (entity.DeviceUserId is Guid staffUserId)
         {
             var now = DateTimeOffset.UtcNow;
-            db.AgentEvents.Add(new AgentEvent
+            var company = await db.Companies.FirstAsync(c => c.Id == entity.CompanyId, ct);
+            var biz = CompanyBusinessTime.At(company, now);
+            var uninstall = new AgentEvent
             {
                 Id = Guid.NewGuid(),
                 CompanyId = entity.CompanyId,
@@ -152,9 +154,15 @@ public sealed class LifecycleService(AppDbContext db, IAuthorityService authorit
                 {
                     kind = AgentEventTypes.Uninstall,
                     ticketId = entity.Id,
-                    consumedAt = now
+                    consumedAt = now,
+                    businessLocal = biz.BusinessLocalIso,
+                    businessTimeZoneId = biz.TimeZoneId,
+                    businessClockVersion = biz.ClockVersion,
+                    businessSynchronized = biz.Synchronized
                 })
-            });
+            };
+            CompanyBusinessTime.StampEvent(uninstall, company, now);
+            db.AgentEvents.Add(uninstall);
         }
 
         await db.SaveChangesAsync(ct);

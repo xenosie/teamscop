@@ -23,6 +23,9 @@ public sealed class ConfigRealtimeClient : IAsyncDisposable
     public event Action<BusinessClockConfig>? BusinessTimeChanged;
     public event Action<OrgStructureDto>? OrgStructureChanged;
     public event Action<EffectiveAuthoritiesDto>? AuthoritiesChanged;
+    public event Action<IReadOnlyList<PolicemanDto>>? PolicemenChanged;
+    /// <summary>Fired after SignalR automatic reconnect — callers should re-pull business time.</summary>
+    public event Func<Task>? ReconnectedAsync;
 
     public ConfigRealtimeClient(string baseUrl)
     {
@@ -82,6 +85,20 @@ public sealed class ConfigRealtimeClient : IAsyncDisposable
             lock (_gate) _authorities = auth;
             AuthoritiesChanged?.Invoke(auth);
         });
+
+        _connection.On<List<PolicemanDto>>("PolicemenUpdated", list =>
+        {
+            PolicemenChanged?.Invoke(list ?? []);
+        });
+
+        _connection.Reconnected += async _ =>
+        {
+            var handler = ReconnectedAsync;
+            if (handler is not null)
+            {
+                await handler().ConfigureAwait(false);
+            }
+        };
 
         await _connection.StartAsync(cancellationToken).ConfigureAwait(false);
     }

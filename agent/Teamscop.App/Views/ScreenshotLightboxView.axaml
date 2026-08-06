@@ -1,0 +1,92 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:Teamscop.App.ViewModels"
+             x:Class="Teamscop.App.Views.ScreenshotLightboxView"
+             x:DataType="vm:ScreenshotViewerViewModel">
+
+  <!-- Fixed-viewport lightbox: frame never resizes; zoom scales the image inside. -->
+  <Border Background="#0F172A" BorderBrush="{StaticResource TsBorderBrush}" BorderThickness="1">
+    <DockPanel>
+      <Border DockPanel.Dock="Top"
+              Background="{StaticResource TsSurfaceBrush}"
+              BorderBrush="{StaticResource TsBorderBrush}"
+              BorderThickness="0,0,0,1"
+              Padding="12,8">
+        <Grid ColumnDefinitions="*,Auto,Auto">
+          <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+            <TextBlock Text="{Binding Title}"
+                       FontWeight="SemiBold"
+                       FontSize="14"
+                       Foreground="{StaticResource TsTextBrush}" />
+            <TextBlock Text="{Binding PositionLabel}"
+                       VerticalAlignment="Center"
+                       Foreground="{StaticResource TsTextMutedBrush}" />
+            <StackPanel Orientation="Horizontal" Spacing="6" Margin="8,0,0,0"
+                        IsVisible="{Binding ShowDisplayPicker}"
+                        VerticalAlignment="Center">
+              <TextBlock Text="Display" VerticalAlignment="Center"
+                         Foreground="{StaticResource TsTextMutedBrush}" />
+              <ComboBox ItemsSource="{Binding DisplayOptions}"
+                        SelectedItem="{Binding SelectedDisplayIndex}"
+                        MinWidth="64" Height="32" />
+            </StackPanel>
+          </StackPanel>
+
+          <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8"
+                      VerticalAlignment="Center" Margin="12,0">
+            <Button Classes="ts-toolbar" Content="Previous" Height="34" MinWidth="88"
+                    Command="{Binding PrevCommand}"
+                    IsEnabled="{Binding CanGoPrev}" />
+            <Button Classes="ts-toolbar" Content="Next" Height="34" MinWidth="88"
+                    Command="{Binding NextCommand}"
+                    IsEnabled="{Binding CanGoNext}" />
+            <Button Classes="ts-toolbar" Content="−" Width="40" Height="34" Padding="0"
+                    FontSize="20" FontWeight="SemiBold"
+                    Command="{Binding ZoomOutCommand}"
+                    ToolTip.Tip="Zoom out" />
+            <Button Classes="ts-toolbar" Content="{Binding ZoomLabel}" MinWidth="72" Height="34"
+                    Command="{Binding FitCommand}"
+                    ToolTip.Tip="Fit to view" />
+            <Button Classes="ts-toolbar" Content="+" Width="40" Height="34" Padding="0"
+                    FontSize="20" FontWeight="SemiBold"
+                    Command="{Binding ZoomInCommand}"
+                    ToolTip.Tip="Zoom in" />
+          </StackPanel>
+
+          <Button Grid.Column="2" Classes="ts-primary" Content="Back" Height="34" MinWidth="88"
+                  HorizontalAlignment="Right"
+                  Command="{Binding CloseCommand}" />
+        </Grid>
+      </Border>
+
+      <Panel>
+        <TextBlock Text="{Binding ErrorMessage}"
+                   IsVisible="{Binding ShowError}"
+                   Foreground="#B91C1C"
+                   HorizontalAlignment="Center"
+                   VerticalAlignment="Center"
+                   TextWrapping="Wrap"
+                   Margin="16" />
+        <TextBlock Text="Loading…"
+                   IsVisible="{Binding IsLoading}"
+                   Foreground="{StaticResource TsTextMutedBrush}"
+                   HorizontalAlignment="Center"
+                   VerticalAlignment="Center" />
+
+        <ScrollViewer Name="ImageScroll"
+                      HorizontalScrollBarVisibility="Auto"
+                      VerticalScrollBarVisibility="Auto"
+                      IsVisible="{Binding HasImage}"
+                      Padding="0"
+                      Background="#0F172A"
+                      SizeChanged="OnViewportSizeChanged">
+          <Image Name="ViewImage"
+                 Source="{Binding Image}"
+                 Stretch="Uniform"
+                 HorizontalAlignment="Center"
+                 VerticalAlignment="Center" />
+        </ScrollViewer>
+      </Panel>
+    </DockPanel>
+  </Border>
+</UserControl>

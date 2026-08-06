@@ -1,6 +1,7 @@
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Media;
+using Teamscop.App.Services;
 using Teamscop.App.ViewModels;
 
 namespace Teamscop.App.Views;
@@ -64,33 +65,49 @@ public partial class AuthWindow : Window
         }
     }
 
-    private void OnAuthenticated(Engine.Auth.AuthSession session)
+    private async void OnAuthenticated(Engine.Auth.AuthSession session)
     {
-        if (!string.Equals(session.User.Role, "admin", StringComparison.OrdinalIgnoreCase))
+        if (Avalonia.Application.Current?.ApplicationLifetime
+            is not Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime desktop)
         {
             return;
         }
 
-        if (Avalonia.Application.Current?.ApplicationLifetime
-            is Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime desktop)
-        {
-            // Prefer freshly persisted admin state (includes company name).
-            var state = new Engine.Lifecycle.LocalAgentStore(Engine.Lifecycle.AgentRole.Admin).Load();
-            if (string.IsNullOrWhiteSpace(state.AccessToken))
-            {
-                state.AccessToken = session.AccessToken;
-                state.DeviceKey = session.User.DeviceKey;
-                state.Role = session.User.Role;
-                state.CompanyId = session.User.Company.Id;
-                state.Username = session.User.Username;
-                state.CompanyName = session.User.Company.Name;
-                state.CompanyAvatarUrl = session.User.Company.AvatarUrl;
-            }
+        var role = string.Equals(session.User.Role, "admin", StringComparison.OrdinalIgnoreCase)
+            ? Engine.Lifecycle.AgentRole.Admin
+            : Engine.Lifecycle.AgentRole.Staff;
+        AppSessionStore.SetActive(role);
 
-            var main = new MainWindow(state);
-            desktop.MainWindow = main;
-            main.Show();
-            Close();
+        // Prefer freshly persisted state (includes company name).
+        var state = new Engine.Lifecycle.LocalAgentStore(role).Load();
+        if (string.IsNullOrWhiteSpace(state.AccessToken))
+        {
+            state.AccessToken = session.AccessToken;
+            state.DeviceKey = session.User.DeviceKey;
+            state.Role = session.User.Role;
+            state.UserId = session.User.Id;
+            state.CompanyId = session.User.Company.Id;
+            state.Username = session.User.Username;
+            state.CompanyName = session.User.Company.Name;
+            state.CompanyAvatarUrl = session.User.Company.AvatarUrl;
         }
+        else if (state.UserId is null || state.UserId == Guid.Empty)
+        {
+            state.UserId = session.User.Id;
+        }
+
+        if (role == Engine.Lifecycle.AgentRole.Admin)
+        {
+            StaffShellLifetime.EnsureAdminShutdownMode();
+        }
+        else
+        {
+            StaffShellLifetime.EnsureStaffShutdownMode();
+        }
+
+        var main = await RoleShellRouter.CreateWindowAsync(state);
+        desktop.MainWindow = main;
+        main.Show();
+        Close();
     }
 }

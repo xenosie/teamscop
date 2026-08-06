@@ -1,0 +1,36 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:controls="clr-namespace:Teamscop.App.Controls"
+        x:Class="Teamscop.App.Views.NoAccessWorkspaceWindow"
+        Title="Teamscop"
+        Icon="/Assets/teamscop-icon.ico"
+        Width="560" Height="360"
+        WindowStartupLocation="CenterScreen"
+        CanResize="False"
+        SystemDecorations="None"
+        ExtendClientAreaToDecorationsHint="True"
+        ExtendClientAreaChromeHints="NoChrome"
+        Background="{StaticResource TsBackgroundBrush}"
+        BorderBrush="{StaticResource TsAccentBrush}"
+        BorderThickness="1">
+  <DockPanel>
+    <controls:TsTitleBar DockPanel.Dock="Top" Title="Teamscop" />
+    <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="12" Margin="40">
+      <TextBlock Text="No workspace access"
+                 FontSize="20"
+                 FontWeight="SemiBold"
+                 Foreground="{StaticResource TsTextBrush}"
+                 HorizontalAlignment="Center" />
+      <TextBlock Text="You are signed in as staff, but you are not a team leader and have no policeman packages. Ask your admin to assign a role."
+                 Classes="ts-muted"
+                 FontSize="13"
+                 TextWrapping="Wrap"
+                 TextAlignment="Center"
+                 MaxWidth="420" />
+      <TextBlock Name="UserLabel"
+                 Classes="ts-muted"
+                 FontSize="12"
+                 HorizontalAlignment="Center" />
+    </StackPanel>
+  </DockPanel>
+</Window>

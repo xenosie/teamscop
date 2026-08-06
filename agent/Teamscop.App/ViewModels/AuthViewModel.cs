@@ -4,6 +4,7 @@ using Avalonia.Media.Imaging;
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Teamscop.App.Services;
 using Teamscop.Engine.Auth;
 using Teamscop.Engine.Lifecycle;
 
@@ -253,9 +254,9 @@ public sealed partial class AuthViewModel : ObservableObject
                 "avatar.png");
 
             PersistSafe(session, AgentRole.Staff);
-            // Staff desktop shell comes later — admin machines open the dashboard.
             ErrorMessage = null;
-            InfoMessage = "Joined. Staff workspace is not ready on this app yet.";
+            InfoMessage = null;
+            Dispatcher.UIThread.Post(() => Authenticated?.Invoke(session));
         }
         catch (Exception ex)
         {
@@ -318,12 +319,14 @@ public sealed partial class AuthViewModel : ObservableObject
             state.AccessToken = session.AccessToken;
             state.DeviceKey = session.User.DeviceKey;
             state.Role = session.User.Role;
+            state.UserId = session.User.Id;
             state.CompanyId = session.User.Company.Id;
             state.ApiBaseUrl = _apiBaseUrl;
             state.Username = session.User.Username;
             state.CompanyName = session.User.Company.Name;
             state.CompanyAvatarUrl = session.User.Company.AvatarUrl;
             store.Save(state);
+            AppSessionStore.SetActive(role);
         }
         catch (Exception ex)
         {

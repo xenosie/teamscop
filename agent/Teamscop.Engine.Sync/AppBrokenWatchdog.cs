@@ -57,6 +57,7 @@ public sealed class AppBrokenWatchdog
             return
             [
                 "Teamscop.StaffService.exe",
+                "Teamscop.SessionHelper.exe",
                 "Teamscop.Engine.Auth.dll",
                 "Teamscop.Engine.Lifecycle.dll",
                 "Teamscop.Engine.Sync.dll",
@@ -68,6 +69,7 @@ public sealed class AppBrokenWatchdog
         return
         [
             "Teamscop.StaffService.dll",
+            "Teamscop.SessionHelper.dll",
             "Teamscop.Engine.Auth.dll",
             "Teamscop.Engine.Lifecycle.dll",
             "Teamscop.Engine.Sync.dll",
@@ -79,7 +81,13 @@ public sealed class AppBrokenWatchdog
     /// <summary>
     /// Scan install root. Returns true if an <c>app_broken</c> event was enqueued this tick.
     /// </summary>
-    public async Task<bool> TickAsync(CancellationToken cancellationToken = default)
+    /// <param name="businessLocal">Optional company business-local stamp (PHASE5).</param>
+    public async Task<bool> TickAsync(
+        CancellationToken cancellationToken = default,
+        string? businessLocal = null,
+        string? businessTimeZoneId = null,
+        long? businessClockVersion = null,
+        bool? businessSynchronized = null)
     {
         cancellationToken.ThrowIfCancellationRequested();
         var report = Inspect();
@@ -105,14 +113,28 @@ public sealed class AppBrokenWatchdog
             _lastEmittedFingerprint = fingerprint;
         }
 
-        await _outbox.EnqueueAsync(
-            OutboxItem.Create(AgentEventTypes.AppBroken, new
+        object payload = businessLocal is null
+            ? new
             {
                 kind = AgentEventTypes.AppBroken,
                 missing = report.Missing,
                 altered = report.Altered,
                 installRoot = _installRoot
-            }),
+            }
+            : new
+            {
+                kind = AgentEventTypes.AppBroken,
+                missing = report.Missing,
+                altered = report.Altered,
+                installRoot = _installRoot,
+                businessLocal,
+                businessTimeZoneId,
+                businessClockVersion,
+                businessSynchronized
+            };
+
+        await _outbox.EnqueueAsync(
+            OutboxItem.Create(AgentEventTypes.AppBroken, payload),
             cancellationToken).ConfigureAwait(false);
 
         return true;

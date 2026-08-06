@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using Avalonia.Media.Imaging;
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
+using Teamscop.App.Services;
 using CommunityToolkit.Mvvm.Input;
 using Teamscop.Engine.Auth;
 using Teamscop.Engine.Lifecycle;
@@ -55,7 +56,7 @@ public sealed partial class TeamBoxViewModel : ObservableObject
 
 public sealed partial class TeamsBoardViewModel : ObservableObject
 {
-    private readonly LocalAgentStore _store = new(AgentRole.Admin);
+    private readonly LocalAgentStore _store = AppSessionStore.ForActiveSession();
     private string _apiBaseUrl;
     private readonly Dictionary<Guid, Bitmap> _avatarCache = new();
 

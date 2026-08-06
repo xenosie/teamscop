@@ -1,0 +1,92 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:Teamscop.App.ViewModels"
+             xmlns:views="clr-namespace:Teamscop.App.Views"
+             x:Class="Teamscop.App.Views.BrowsingHistoryView"
+             x:DataType="vm:BrowsingHistoryViewModel">
+
+  <DockPanel LastChildFill="True"
+             HorizontalAlignment="Stretch">
+    <StackPanel DockPanel.Dock="Top"
+                Spacing="4"
+                Margin="0,0,0,16"
+                HorizontalAlignment="Left">
+      <TextBlock Text="Browsing History"
+                 FontSize="22"
+                 FontWeight="SemiBold"
+                 Foreground="{StaticResource TsTextBrush}"
+                 HorizontalAlignment="Left" />
+      <TextBlock Text="Unique sites in the selected period (subdomains rolled up), sorted by visit count."
+                 FontSize="13"
+                 Foreground="{StaticResource TsTextMutedBrush}"
+                 TextWrapping="Wrap"
+                 HorizontalAlignment="Left"
+                 MaxWidth="640" />
+      <views:ChainHealthBannerView DataContext="{Binding Chain}" Margin="0,4,0,0" />
+    </StackPanel>
+
+    <Panel HorizontalAlignment="Stretch">
+      <TextBlock Text="{Binding ErrorMessage}"
+                 IsVisible="{Binding ShowError}"
+                 Foreground="#B91C1C"
+                 FontSize="13"
+                 TextWrapping="Wrap"
+                 HorizontalAlignment="Left"
+                 VerticalAlignment="Top" />
+      <TextBlock Text="{Binding EmptyMessage}"
+                 IsVisible="{Binding ShowEmpty}"
+                 Foreground="{StaticResource TsTextMutedBrush}"
+                 FontSize="13"
+                 HorizontalAlignment="Left"
+                 VerticalAlignment="Top" />
+      <TextBlock Text="Loading…"
+                 IsVisible="{Binding IsLoading}"
+                 Foreground="{StaticResource TsTextMutedBrush}"
+                 FontSize="13"
+                 HorizontalAlignment="Left"
+                 VerticalAlignment="Top" />
+
+      <ScrollViewer IsVisible="{Binding HasItems}"
+                    VerticalScrollBarVisibility="Visible"
+                    HorizontalScrollBarVisibility="Disabled"
+                    HorizontalAlignment="Left"
+                    VerticalAlignment="Top">
+        <ItemsControl ItemsSource="{Binding Items}"
+                      HorizontalAlignment="Left"
+                      Width="520">
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="vm:BrowsingDomainRowViewModel">
+              <Button Classes="ts-link"
+                      HorizontalAlignment="Left"
+                      HorizontalContentAlignment="Left"
+                      Padding="0"
+                      Margin="0,0,0,1"
+                      Width="520"
+                      Command="{Binding OpenCommand}">
+                <Grid ColumnDefinitions="*,Auto" Margin="0,6" Width="520">
+                  <TextBlock Grid.Column="0"
+                             Text="{Binding Domain}"
+                             FontSize="14"
+                             FontWeight="SemiBold"
+                             Foreground="{StaticResource TsTextBrush}"
+                             TextAlignment="Left"
+                             HorizontalAlignment="Left"
+                             TextTrimming="CharacterEllipsis" />
+                  <TextBlock Grid.Column="1"
+                             Text="{Binding VisitCountLabel}"
+                             FontSize="14"
+                             FontWeight="SemiBold"
+                             Foreground="{StaticResource TsAccentBrush}"
+                             Margin="16,0,0,0"
+                             MinWidth="28"
+                             TextAlignment="Right"
+                             HorizontalAlignment="Right" />
+                </Grid>
+              </Button>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+      </ScrollViewer>
+    </Panel>
+  </DockPanel>
+</UserControl>

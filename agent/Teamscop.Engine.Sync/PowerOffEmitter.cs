@@ -6,12 +6,32 @@ public static class PowerOffEmitter
     public const string ReasonServiceStop = "service_stop";
     public const string ReasonShutdown = "shutdown";
 
-    public static OutboxItem Create(string reason = ReasonServiceStop)
-        => OutboxItem.Create(AgentEventTypes.PowerOff, new
+    public static OutboxItem Create(
+        string reason = ReasonServiceStop,
+        string? businessLocal = null,
+        string? businessTimeZoneId = null,
+        long? businessClockVersion = null,
+        bool? businessSynchronized = null)
+    {
+        if (businessLocal is null)
+        {
+            return OutboxItem.Create(AgentEventTypes.PowerOff, new
+            {
+                kind = AgentEventTypes.PowerOff,
+                reason
+            });
+        }
+
+        return OutboxItem.Create(AgentEventTypes.PowerOff, new
         {
             kind = AgentEventTypes.PowerOff,
-            reason
+            reason,
+            businessLocal,
+            businessTimeZoneId,
+            businessClockVersion,
+            businessSynchronized
         });
+    }
 
     /// <summary>
     /// Enqueue power_off and best-effort flush. Safe to call after host cancellation
@@ -22,13 +42,19 @@ public static class PowerOffEmitter
         SyncEngine syncEngine,
         string? accessToken,
         string reason = ReasonServiceStop,
+        string? businessLocal = null,
+        string? businessTimeZoneId = null,
+        long? businessClockVersion = null,
+        bool? businessSynchronized = null,
         TimeSpan? flushTimeout = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(outbox);
         ArgumentNullException.ThrowIfNull(syncEngine);
 
-        await outbox.EnqueueAsync(Create(reason), cancellationToken).ConfigureAwait(false);
+        await outbox.EnqueueAsync(
+            Create(reason, businessLocal, businessTimeZoneId, businessClockVersion, businessSynchronized),
+            cancellationToken).ConfigureAwait(false);
 
         if (string.IsNullOrWhiteSpace(accessToken))
         {

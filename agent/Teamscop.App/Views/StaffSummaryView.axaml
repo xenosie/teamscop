@@ -1,0 +1,62 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:Teamscop.App.ViewModels"
+             x:Class="Teamscop.App.Views.StaffSummaryView"
+             x:DataType="vm:StaffSummaryViewModel">
+
+  <DockPanel LastChildFill="True">
+    <StackPanel DockPanel.Dock="Top" Spacing="4" Margin="0,0,0,16">
+      <TextBlock Text="{Binding StaffName}"
+                 FontSize="22"
+                 FontWeight="SemiBold"
+                 Foreground="{StaticResource TsTextBrush}" />
+      <TextBlock Text="Summary"
+                 FontSize="14"
+                 Classes="ts-muted" />
+    </StackPanel>
+
+    <StackPanel Spacing="14" MaxWidth="720" HorizontalAlignment="Left">
+      <TextBlock Text="{Binding ErrorMessage}"
+                 IsVisible="{Binding ShowError}"
+                 Foreground="#B91C1C"
+                 FontSize="13"
+                 TextWrapping="Wrap" />
+      <TextBlock Text="{Binding EmptyMessage}"
+                 IsVisible="{Binding ShowEmpty}"
+                 Foreground="{StaticResource TsTextMutedBrush}"
+                 FontSize="13"
+                 TextWrapping="Wrap" />
+      <TextBlock Text="Loading…"
+                 IsVisible="{Binding IsLoading}"
+                 Foreground="{StaticResource TsTextMutedBrush}"
+                 FontSize="13" />
+
+      <StackPanel IsVisible="{Binding HasContent}" Spacing="12">
+        <TextBlock Text="{Binding WorkedSentence}"
+                   FontSize="15"
+                   Foreground="{StaticResource TsTextBrush}"
+                   TextWrapping="Wrap"
+                   LineHeight="24" />
+
+        <TextBlock Text="{Binding TopUrlsIntro}"
+                   FontSize="15"
+                   Foreground="{StaticResource TsTextBrush}"
+                   TextWrapping="Wrap"
+                   LineHeight="24" />
+
+        <ItemsControl ItemsSource="{Binding TopUrls}"
+                      IsVisible="{Binding HasTopUrls}">
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="vm:StaffSummaryTopUrlViewModel">
+              <TextBlock FontSize="14"
+                         Margin="0,2,0,2"
+                         Foreground="{StaticResource TsAccentBrush}"
+                         TextWrapping="Wrap"
+                         Text="{Binding Url}" />
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+      </StackPanel>
+    </StackPanel>
+  </DockPanel>
+</UserControl>

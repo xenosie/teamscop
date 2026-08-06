@@ -77,9 +77,9 @@ The Windows agent must use the same `CompanyToken__Key` (base64 32-byte AES key)
 - `GET /api/auth/me` (Bearer)
 - `POST /api/auth/company-token/reveal` (Admin Bearer)
 - `POST /api/lifecycle/totp/enroll` (Admin Bearer, `{ staffUserId }`) — per-staff TOTP for USB + uninstall
-- `GET /api/lifecycle/totp/staff` (Admin Bearer) — list staff TOTP status
-- `GET /api/lifecycle/totp/status/{staffUserId}` (Admin Bearer)
-- `GET /api/lifecycle/totp/code/{staffUserId}` (Admin Bearer) — current 6-digit code generator
+- `GET /api/lifecycle/totp/staff` (Admin, or `usb_approval` / `uninstall_approval`)
+- `GET /api/lifecycle/totp/status/{staffUserId}` (Admin, or approval packages)
+- `GET /api/lifecycle/totp/code/{staffUserId}` (Admin, or `usb_approval` / `uninstall_approval`) — current 6-digit code
 - `POST /api/lifecycle/uninstall/verify` — staff deviceKey + TOTP → uninstall ticket
 - `POST /api/lifecycle/uninstall/consume` — consume ticket during MSI uninstall
 - `POST /api/lifecycle/usb/verify` — staff deviceKey + TOTP → USB session ticket
@@ -88,14 +88,14 @@ The Windows agent must use the same `CompanyToken__Key` (base64 32-byte AES key)
 - `POST /api/ingest/batch` (Bearer) — durable agent event push
 - `GET /api/tracking/config/me` (Staff Bearer)
 - `PUT /api/tracking/config/{staffUserId}` (Admin Bearer) — quality/period; SignalR push to staff
-- Hub: `/hubs/config` — `TrackingConfigUpdated`, `BusinessTimeUpdated`
+- Hub: `/hubs/config` — `TrackingConfigUpdated`, `BusinessTimeUpdated`, `OrgStructureUpdated`, `AuthoritiesUpdated`, `PolicemenUpdated` (JWT via `Authorization` or `?access_token=`)
 - `GET /api/business-time/me` (Bearer)
 - `POST /api/business-time/declare` (Admin Bearer) — absolute company sync clock
 - `GET /api/business-time/now` (Bearer)
-- `GET /api/org/structure` (Admin Bearer) — full teams tree
+- `GET /api/org/structure` (Admin or `team_management`) — full teams tree
 - `GET /api/org/me` (Bearer) — my team placement
-- `POST/PUT/DELETE /api/teams…` (Admin Bearer) — flexible team structure
-- `GET /api/tracking/staff` (Admin or policeman with a view/approval package — company-wide)
+- `POST/PUT/DELETE /api/teams…` (Admin or `team_management`)
+- `GET /api/tracking/staff` (Admin / policeman company-wide; team leader → members only)
 - `GET /api/tracking/events?staffUserId=` (filtered by authority packages)
 - `GET/PUT/DELETE /api/police…` — policemen + authority packages
 - `GET /health`

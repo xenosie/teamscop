@@ -97,19 +97,5 @@ public sealed class BusinessTimeService(
         }
     }
 
-    private static BusinessClockConfig ToDto(Company c) => new()
-    {
-        CompanyId = c.Id,
-        TimeZoneId = string.IsNullOrWhiteSpace(c.BusinessTimeZoneId) ? "UTC" : c.BusinessTimeZoneId,
-        ClockVersion = c.BusinessClockVersion,
-        IsSynchronized = c.BusinessClockSynchronized,
-        AnchorUtc = c.BusinessAnchorUtc,
-        AnchorYear = c.BusinessAnchorYear,
-        AnchorMonth = c.BusinessAnchorMonth,
-        AnchorDay = c.BusinessAnchorDay,
-        AnchorHour = c.BusinessAnchorHour,
-        AnchorMinute = c.BusinessAnchorMinute,
-        AnchorSecond = c.BusinessAnchorSecond,
-        UpdatedAt = c.BusinessClockUpdatedAt ?? c.CreatedAt
-    };
+    private static BusinessClockConfig ToDto(Company c) => CompanyBusinessTime.ToConfig(c);
 }

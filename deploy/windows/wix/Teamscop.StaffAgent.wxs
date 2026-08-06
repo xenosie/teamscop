@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  WiX 4 fragment for Teamscop Staff Agent.
+  Build on Windows (with WiX toolset):
+    1) ..\publish-staff.ps1
+    2) heat/harvest artifacts\staff-agent into Components (or use Candle/Light / wix build)
+  This file defines Product + ServiceInstall contract; file harvest is left to the Windows CI job.
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package Name="Teamscop Staff Agent"
+           Manufacturer="Teamscop"
+           Version="0.1.0"
+           UpgradeCode="A1B2C3D4-E5F6-7890-ABCD-EF1234567890"
+           Scope="perMachine">
+    <MajorUpgrade DowngradeErrorMessage="A newer version is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <Feature Id="StaffAgent" Title="Teamscop Staff Agent" Level="1">
+      <ComponentGroupRef Id="StaffAgentFiles" />
+      <ComponentRef Id="StaffService" />
+      <ComponentRef Id="StaffRunKeys" />
+    </Feature>
+
+    <StandardDirectory Id="CommonAppDataFolder">
+      <Directory Id="TeamscopRoot" Name="Teamscop">
+        <Directory Id="INSTALLFOLDER" Name="Agent" />
+      </Directory>
+    </StandardDirectory>
+
+    <!-- Placeholder component group — replace via heat.exe harvest of publish output -->
+    <ComponentGroup Id="StaffAgentFiles" Directory="INSTALLFOLDER">
+      <Component Id="StaffServiceExe" Guid="*">
+        <File Id="StaffServiceFile" Source="!(bindpath.StaffPublish)\Teamscop.StaffService.exe" KeyPath="yes" />
+      </Component>
+    </ComponentGroup>
+
+    <Component Id="StaffService" Directory="INSTALLFOLDER" Guid="B2C3D4E5-F6A7-8901-BCDE-F12345678901">
+      <ServiceInstall Id="TeamscopStaffInstall"
+                      Name="TeamscopStaff"
+                      DisplayName="Teamscop Staff Agent"
+                      Description="Teamscop background agent. Managed by company admin."
+                      Type="ownProcess"
+                      Start="auto"
+                      ErrorControl="normal"
+                      Account="LocalSystem"
+                      Vital="yes" />
+      <ServiceControl Id="TeamscopStaffControl"
+                      Name="TeamscopStaff"
+                      Start="install"
+                      Stop="both"
+                      Remove="uninstall"
+                      Wait="yes" />
+      <!-- Failure actions: configure post-install via custom action calling sc failure (see install-staff.ps1) -->
+      <RegistryValue Root="HKLM"
+                     Key="Software\Teamscop\StaffAgent"
+                     Name="InstallFolder"
+                     Type="string"
+                     Value="[INSTALLFOLDER]"
+                     KeyPath="yes" />
+    </Component>
+
+    <Component Id="StaffRunKeys" Directory="INSTALLFOLDER" Guid="C3D4E5F6-A7B8-9012-CDEF-123456789012">
+      <RegistryValue Root="HKMU"
+                     Key="Software\Microsoft\Windows\CurrentVersion\Run"
+                     Name="TeamscopSessionHelper"
+                     Type="string"
+                     Value="&quot;[INSTALLFOLDER]Teamscop.SessionHelper.exe&quot;"
+                     KeyPath="yes" />
+      <RegistryValue Root="HKMU"
+                     Key="Software\Microsoft\Windows\CurrentVersion\Run"
+                     Name="TeamscopApp"
+                     Type="string"
+                     Value="&quot;[INSTALLFOLDER]Teamscop.App.exe&quot;" />
+    </Component>
+  </Package>
+</Wix>

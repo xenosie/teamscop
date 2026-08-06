@@ -1,0 +1,92 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:Teamscop.App.ViewModels"
+             xmlns:heroIcons="clr-namespace:HeroIconsAvalonia.Controls;assembly=HeroIconsAvalonia"
+             x:Class="Teamscop.App.Views.TotpCodesView"
+             x:Name="RootCodes"
+             x:DataType="vm:TotpCodesViewModel"
+             Background="{StaticResource TsBackgroundBrush}">
+
+  <Grid ColumnDefinitions="280,*" Margin="28,20">
+    <DockPanel Grid.Column="0" Margin="0,0,20,0">
+      <StackPanel DockPanel.Dock="Top" Spacing="4" Margin="0,0,0,16">
+        <TextBlock Text="Codes"
+                   FontSize="22"
+                   FontWeight="SemiBold"
+                   Foreground="{StaticResource TsTextBrush}" />
+        <TextBlock Text="Generate the current 6-digit approval code for a staff member (USB unlock or uninstall). Requires usb_approval or uninstall_approval."
+                   Classes="ts-muted"
+                   FontSize="12"
+                   TextWrapping="Wrap" />
+      </StackPanel>
+
+      <TextBlock Text="No staff listed"
+                 Classes="ts-muted"
+                 FontSize="13"
+                 IsVisible="{Binding !HasStaff}" />
+
+      <ScrollViewer Classes="ts-transparent-scroll"
+                    VerticalScrollBarVisibility="Auto"
+                    IsVisible="{Binding HasStaff}">
+        <ItemsControl ItemsSource="{Binding StaffRows}">
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="vm:TotpStaffRowViewModel">
+              <Button Classes="ts-staff-row"
+                      Classes.selected="{Binding IsSelected}"
+                      HorizontalAlignment="Stretch"
+                      Command="{Binding #RootCodes.((vm:TotpCodesViewModel)DataContext).SelectStaffCommand}"
+                      CommandParameter="{Binding}">
+                <StackPanel Spacing="2" Margin="8,6">
+                  <TextBlock Text="{Binding Username}" FontWeight="SemiBold" FontSize="13" />
+                  <TextBlock Text="{Binding StatusLabel}" Classes="ts-muted" FontSize="11" />
+                </StackPanel>
+              </Button>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+      </ScrollViewer>
+    </DockPanel>
+
+    <StackPanel Grid.Column="1" Spacing="14" VerticalAlignment="Top">
+      <TextBlock Text="Current code"
+                 FontSize="16"
+                 FontWeight="SemiBold"
+                 Foreground="{StaticResource TsTextBrush}" />
+      <TextBlock Text="{Binding Code}"
+                 FontSize="42"
+                 FontWeight="Bold"
+                 LetterSpacing="8"
+                 Foreground="{StaticResource TsAccentBrush}"
+                 IsVisible="{Binding HasCode}" />
+      <TextBlock Classes="ts-muted" FontSize="13" IsVisible="{Binding HasCode}">
+        <Run Text="Expires in " />
+        <Run Text="{Binding RemainingSeconds}" />
+        <Run Text="s" />
+      </TextBlock>
+      <StackPanel Orientation="Horizontal" Spacing="10">
+        <Button Classes="ts-primary"
+                Content="Refresh code"
+                Height="40"
+                MinWidth="140"
+                Command="{Binding RefreshCodeCommand}"
+                IsEnabled="{Binding !IsBusy}" />
+        <Button Classes="ts-toolbar"
+                Content="Copy"
+                Height="40"
+                MinWidth="100"
+                Command="{Binding CopyCodeCommand}"
+                IsVisible="{Binding HasCode}" />
+      </StackPanel>
+      <TextBlock Text="{Binding StatusMessage}"
+                 Foreground="{StaticResource TsAccentBrush}"
+                 FontSize="13"
+                 IsVisible="{Binding ShowStatus}"
+                 TextWrapping="Wrap" />
+      <TextBlock Text="{Binding ErrorMessage}"
+                 Foreground="#B91C1C"
+                 FontSize="13"
+                 IsVisible="{Binding ShowError}"
+                 TextWrapping="Wrap" />
+    </StackPanel>
+  </Grid>
+</UserControl>

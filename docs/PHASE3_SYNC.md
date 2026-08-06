@@ -19,13 +19,17 @@ Staff agents keep collecting events offline and push them when the API is reacha
 ```
 probe /health
   → enqueue connectivity event
-  → enqueue heartbeat event
-  → if API reachable: POST /api/ingest/batch
+  → enqueue heartbeat (helperAlive, trackingOk, pendingOutbox, vaultTipSequence)
+  → if API reachable: POST /api/lifecycle/heartbeat + POST /api/ingest/batch
   → ack accepted + duplicate ids locally
 ```
 
+Offline: outbox + vault accumulate on disk. Online: flush preserves vault sequence / chain hash so server gap detection matches local chain.
+
+Heartbeat is the liveness signal: missing heartbeat ⇒ agent offline in chain health banners.
+
 ## Event types (extensible)
 
-`heartbeat`, `connectivity`, `timetrack`, `screenshot_meta`, `browser_history`, `usb_event`
+`heartbeat`, `connectivity`, `timetrack`, `screenshot_meta`, `browser_history`, `usb_event`, `vault_alert`, `app_broken`, `power_off`
 
 Future capability modules only enqueue into the same outbox.

@@ -7,7 +7,11 @@ public sealed class JwtOptions
     public string Key { get; set; } = string.Empty;
     public string Issuer { get; set; } = "teamscop";
     public string Audience { get; set; } = "teamscop-agent";
-    public int AccessTokenMinutes { get; set; } = 60 * 12;
+
+    /// <summary>
+    /// Unused. Access tokens do not expire; kept only for backward-compatible config files.
+    /// </summary>
+    public int AccessTokenMinutes { get; set; } = 0;
 }
 
 public sealed class CompanyTokenOptions

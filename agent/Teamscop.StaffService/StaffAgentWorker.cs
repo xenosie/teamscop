@@ -18,7 +18,8 @@ public sealed class StaffAgentWorker(
     TrackingCoordinator tracking,
     ConfigRealtimeClient configClient,
     UsbSessionController usb,
-    AppBrokenWatchdog appBroken) : BackgroundService
+    AppBrokenWatchdog appBroken,
+    SessionHelperPipeServer sessionHelperPipe) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -29,6 +30,9 @@ public sealed class StaffAgentWorker(
             "Teamscop staff agent starting. InstallRoot={Root} Service={Service}",
             policy.RecommendedInstallRoot,
             ServiceInstallerHints.ServiceName);
+
+        sessionHelperPipe.Start();
+        logger.LogInformation("SessionHelper pipe listening ({Pipe})", SessionHelperPipeNames.Default);
 
         try
         {
@@ -117,6 +121,43 @@ public sealed class StaffAgentWorker(
                                 auth.IsPoliceman,
                                 string.Join(',', auth.Packages));
                         };
+                        configClient.ReconnectedAsync += async () =>
+                        {
+                            try
+                            {
+                                using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(15) };
+                                var token = store.Load().AccessToken;
+                                if (string.IsNullOrWhiteSpace(token))
+                                {
+                                    return;
+                                }
+
+                                var snap = await configClient.PullSnapshotAsync(http, token, stoppingToken);
+                                if (snap is not null)
+                                {
+                                    tracking.ApplyConfig(snap);
+                                    logger.LogInformation(
+                                        "Tracking config re-pulled after reconnect v{Version}",
+                                        snap.ConfigVersion);
+                                }
+
+                                var biz = await configClient.PullBusinessTimeAsync(http, token, stoppingToken);
+                                if (biz is not null)
+                                {
+                                    tracking.ApplyBusinessClock(biz);
+                                    logger.LogInformation(
+                                        "Business clock re-pulled after reconnect v{Version} tz={Tz}",
+                                        biz.ClockVersion, biz.TimeZoneId);
+                                }
+
+                                _ = await configClient.PullAuthoritiesAsync(http, token, stoppingToken);
+                                _ = await configClient.PullOrgPlacementAsync(http, token, stoppingToken);
+                            }
+                            catch (Exception ex)
+                            {
+                                logger.LogWarning(ex, "Config re-pull after reconnect failed");
+                            }
+                        };
                         configStarted = true;
                     }
                     catch (Exception ex)
@@ -129,7 +170,13 @@ public sealed class StaffAgentWorker(
 
                 try
                 {
-                    if (await appBroken.TickAsync(stoppingToken))
+                    var bizStamp = tracking.BusinessClock.Now();
+                    if (await appBroken.TickAsync(
+                            stoppingToken,
+                            bizStamp.BusinessLocalIso,
+                            bizStamp.TimeZoneId,
+                            bizStamp.ClockVersion,
+                            bizStamp.Synchronized))
                     {
                         logger.LogWarning(
                             "Install integrity incident under {Root}; app_broken enqueued",
@@ -152,12 +199,19 @@ public sealed class StaffAgentWorker(
 
                 if (!string.IsNullOrWhiteSpace(state.AccessToken))
                 {
+                    // helperAlive/trackingOk: until SessionHelper split, in-process capture counts as helper.
+                    var helperAlive = tracking.IsSessionHelperAlive;
+                    var trackingOk = helperAlive && tracking.IsTrackingHealthy;
                     await syncEngine.EnqueueAsync(
                         OutboxItem.Create(AgentEventTypes.Heartbeat, new
                         {
                             deviceKey = state.DeviceKey,
                             role = state.Role ?? "staff",
                             pending = syncEngine.PendingCount,
+                            pendingOutbox = syncEngine.PendingCount,
+                            helperAlive,
+                            trackingOk,
+                            vaultTipSequence = tracking.VaultTipSequence,
                             businessLocal = bizNow.BusinessLocalIso,
                             businessTimeZoneId = bizNow.TimeZoneId,
                             businessClockVersion = bizNow.ClockVersion,
@@ -197,13 +251,18 @@ public sealed class StaffAgentWorker(
         try
         {
             var state = store.Load();
+            var biz = tracking.BusinessClock.Now();
             await PowerOffEmitter.EmitAsync(
                 outbox,
                 syncEngine,
                 state.AccessToken,
                 PowerOffEmitter.ReasonServiceStop,
+                businessLocal: biz.BusinessLocalIso,
+                businessTimeZoneId: biz.TimeZoneId,
+                businessClockVersion: biz.ClockVersion,
+                businessSynchronized: biz.Synchronized,
                 cancellationToken: CancellationToken.None);
-            logger.LogInformation("Enqueued power_off (service_stop)");
+            logger.LogInformation("Enqueued power_off (service_stop) tz={Tz}", biz.TimeZoneId);
         }
         catch (Exception ex)
         {
@@ -212,6 +271,7 @@ public sealed class StaffAgentWorker(
 
         await configClient.DisposeAsync();
         await usb.DisposeAsync();
+        await sessionHelperPipe.DisposeAsync();
         logger.LogInformation("Teamscop staff agent stopping.");
     }
 }

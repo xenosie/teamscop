@@ -16,7 +16,7 @@ public class TeamOrgFlowTests : IClassFixture<WebApplicationFactory<Program>>
     }
 
     [Fact]
-    public async Task AdminBuildsTeam_LeaderHasNoAutoTrackingVisibility()
+    public async Task AdminBuildsTeam_LeaderSeesOnlyMemberTracking_NotUsbOrAppHistory()
     {
         var (adminToken, companyToken) = await SignupAdminAsync("Org Co");
         var (leaderId, leaderToken, _) = await SignupStaffAsync(companyToken, "Leader");
@@ -34,14 +34,40 @@ public class TeamOrgFlowTests : IClassFixture<WebApplicationFactory<Program>>
         memReq.Content = JsonContent.Create(new { memberUserIds = new[] { memberId } });
         (await _client.SendAsync(memReq)).EnsureSuccessStatusCode();
 
-        // Team leader without packages cannot see member tracking (packages-only model).
+        // Leader immediately sees only their team members in the tracking staff list.
         using var visibleReq = Authed(HttpMethod.Get, "/api/tracking/staff", leaderToken);
         var visibleResp = await _client.SendAsync(visibleReq);
         visibleResp.EnsureSuccessStatusCode();
-        Assert.Equal(0, JsonDocument.Parse(await visibleResp.Content.ReadAsStringAsync()).RootElement.GetArrayLength());
+        using var visibleDoc = JsonDocument.Parse(await visibleResp.Content.ReadAsStringAsync());
+        Assert.Equal(1, visibleDoc.RootElement.GetArrayLength());
+        Assert.Equal(memberId, visibleDoc.RootElement[0].GetProperty("userId").GetGuid());
 
-        using var eventsReq = Authed(HttpMethod.Get, $"/api/tracking/events?staffUserId={memberId}", leaderToken);
-        Assert.Equal(HttpStatusCode.Forbidden, (await _client.SendAsync(eventsReq)).StatusCode);
+        // Tracking event types allowed for the member.
+        using var ttReq = Authed(HttpMethod.Get,
+            $"/api/tracking/events?staffUserId={memberId}&eventType=timetrack", leaderToken);
+        Assert.Equal(HttpStatusCode.OK, (await _client.SendAsync(ttReq)).StatusCode);
+
+        using var shotReq = Authed(HttpMethod.Get,
+            $"/api/tracking/events?staffUserId={memberId}&eventType=screenshot_meta", leaderToken);
+        Assert.Equal(HttpStatusCode.OK, (await _client.SendAsync(shotReq)).StatusCode);
+
+        using var browseReq = Authed(HttpMethod.Get,
+            $"/api/tracking/events?staffUserId={memberId}&eventType=browser_history", leaderToken);
+        Assert.Equal(HttpStatusCode.OK, (await _client.SendAsync(browseReq)).StatusCode);
+
+        // Never USB / app-history lifecycle without approval packages.
+        using var usbReq = Authed(HttpMethod.Get,
+            $"/api/tracking/events?staffUserId={memberId}&eventType=usb_event", leaderToken);
+        Assert.Equal(HttpStatusCode.Forbidden, (await _client.SendAsync(usbReq)).StatusCode);
+
+        using var brokenReq = Authed(HttpMethod.Get,
+            $"/api/tracking/events?staffUserId={memberId}&eventType=app_broken", leaderToken);
+        Assert.Equal(HttpStatusCode.Forbidden, (await _client.SendAsync(brokenReq)).StatusCode);
+
+        // Outside the team → forbidden.
+        using var otherReq = Authed(HttpMethod.Get,
+            $"/api/tracking/events?staffUserId={otherId}&eventType=timetrack", leaderToken);
+        Assert.Equal(HttpStatusCode.Forbidden, (await _client.SendAsync(otherReq)).StatusCode);
 
         using var memberDeny = Authed(HttpMethod.Get, $"/api/tracking/events?staffUserId={leaderId}", memberToken);
         Assert.Equal(HttpStatusCode.Forbidden, (await _client.SendAsync(memberDeny)).StatusCode);
@@ -55,6 +81,16 @@ public class TeamOrgFlowTests : IClassFixture<WebApplicationFactory<Program>>
         using var placeReq = Authed(HttpMethod.Get, "/api/org/me", leaderToken);
         var place = JsonDocument.Parse(await (await _client.SendAsync(placeReq)).Content.ReadAsStringAsync());
         Assert.Equal("leader", place.RootElement.GetProperty("placement").GetString());
+
+        // Inherent view packages appear in /api/police/me for leaders.
+        using var meReq = Authed(HttpMethod.Get, "/api/police/me", leaderToken);
+        var meDoc = JsonDocument.Parse(await (await _client.SendAsync(meReq)).Content.ReadAsStringAsync());
+        var pkgs = meDoc.RootElement.GetProperty("packages").EnumerateArray().Select(p => p.GetString()).ToHashSet();
+        Assert.Contains("view_screenshot", pkgs);
+        Assert.Contains("view_timetrack", pkgs);
+        Assert.Contains("view_browser_history", pkgs);
+        Assert.DoesNotContain("usb_approval", pkgs);
+        Assert.DoesNotContain("uninstall_approval", pkgs);
     }
 
     [Fact]

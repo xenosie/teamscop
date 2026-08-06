@@ -20,6 +20,16 @@ public sealed class TrackingCoordinator
     private DateTimeOffset _lastScreenshotAt = DateTimeOffset.MinValue;
     private DateTimeOffset _lastTimeTrackFlush = DateTimeOffset.UtcNow;
     private DateTimeOffset _lastIntegrityFullScan = DateTimeOffset.MinValue;
+    private DateTimeOffset _lastHelperSeenAt = DateTimeOffset.MinValue;
+    private DateTimeOffset _lastSuccessfulCaptureAt = DateTimeOffset.UtcNow;
+    private bool _preferSessionHelper;
+
+    /// <summary>When true, in-process capture is skipped (SessionHelper owns input/screens/Chrome).</summary>
+    public bool PreferSessionHelper
+    {
+        get => _preferSessionHelper;
+        set => _preferSessionHelper = value;
+    }
 
     public TrackingCoordinator(
         SecureVault vault,
@@ -40,6 +50,30 @@ public sealed class TrackingCoordinator
     public StaffTrackingConfig Config => _config;
     public BusinessClock BusinessClock => _businessClock;
 
+    /// <summary>Helper reported within the liveness window, or in-process capture is active.</summary>
+    public bool IsSessionHelperAlive
+        => !_preferSessionHelper
+           || DateTimeOffset.UtcNow - _lastHelperSeenAt < TimeSpan.FromSeconds(90);
+
+    public bool IsTrackingHealthy
+        => IsSessionHelperAlive
+           && DateTimeOffset.UtcNow - _lastSuccessfulCaptureAt < TimeSpan.FromMinutes(5);
+
+    public long VaultTipSequence
+    {
+        get
+        {
+            var report = _vault.Verify(fullScan: false);
+            return report.HighestSequenceFound;
+        }
+    }
+
+    public void NoteSessionHelperAlive()
+    {
+        _lastHelperSeenAt = DateTimeOffset.UtcNow;
+        _preferSessionHelper = true;
+    }
+
     public void ApplyConfig(StaffTrackingConfig config) => _config = config;
 
     public void ApplyBusinessClock(BusinessClockConfig config) => _businessClock.Apply(config);
@@ -58,6 +92,12 @@ public sealed class TrackingCoordinator
             await EnqueueVaultAlertAsync(report, cancellationToken).ConfigureAwait(false);
         }
 
+        // Capture stays in-process until a SessionHelper connects (then PreferSessionHelper=true).
+        if (_preferSessionHelper)
+        {
+            return;
+        }
+
         if (_config.TimeTrackEnabled)
         {
             await TickTimeTrackAsync(cancellationToken).ConfigureAwait(false);
@@ -74,6 +114,19 @@ public sealed class TrackingCoordinator
         {
             await TickChromeAsync(cancellationToken).ConfigureAwait(false);
         }
+    }
+
+    /// <summary>Persist a capture payload received from the interactive SessionHelper.</summary>
+    public Task PersistFromHelperAsync(
+        string eventType,
+        string vaultKind,
+        byte[] plain,
+        DateTimeOffset occurredUtc,
+        CancellationToken ct = default)
+    {
+        NoteSessionHelperAlive();
+        _lastSuccessfulCaptureAt = DateTimeOffset.UtcNow;
+        return PersistAndEnqueueAsync(eventType, vaultKind, plain, occurredUtc, ct);
     }
 
     private async Task TickTimeTrackAsync(CancellationToken ct)
@@ -106,6 +159,7 @@ public sealed class TrackingCoordinator
             algorithm = "last_input_hysteresis_v1"
         });
         await PersistAndEnqueueAsync(AgentEventTypes.TimeTrack, "timetrack", payload, endedUtc, ct).ConfigureAwait(false);
+        _lastSuccessfulCaptureAt = DateTimeOffset.UtcNow;
     }
 
     private async Task TickScreenshotAsync(CancellationToken ct)
@@ -119,6 +173,7 @@ public sealed class TrackingCoordinator
         var payload = _screenshots.SerializeCaptures(captures, _config.ConfigVersion);
         await PersistAndEnqueueAsync(AgentEventTypes.ScreenshotMeta, "screenshot", payload, DateTimeOffset.UtcNow, ct)
             .ConfigureAwait(false);
+        _lastSuccessfulCaptureAt = DateTimeOffset.UtcNow;
     }
 
     private async Task TickChromeAsync(CancellationToken ct)
@@ -132,6 +187,7 @@ public sealed class TrackingCoordinator
         var payload = _chrome.SerializeVisits(visits);
         await PersistAndEnqueueAsync(AgentEventTypes.BrowserHistory, "browser_history", payload, DateTimeOffset.UtcNow, ct)
             .ConfigureAwait(false);
+        _lastSuccessfulCaptureAt = DateTimeOffset.UtcNow;
     }
 
     private async Task PersistAndEnqueueAsync(

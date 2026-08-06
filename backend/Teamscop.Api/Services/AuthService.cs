@@ -140,22 +140,30 @@ public sealed class AuthService(
 
         db.Users.Add(staff);
         var devicePrefix = staff.DeviceKey.Length >= 8 ? staff.DeviceKey[..8] : staff.DeviceKey;
-        db.AgentEvents.Add(new AgentEvent
+        var occurred = DateTimeOffset.UtcNow;
+        var biz = CompanyBusinessTime.At(company, occurred);
+        var registration = new AgentEvent
         {
             Id = Guid.NewGuid(),
             CompanyId = company.Id,
             UserId = staff.Id,
             ClientEventId = Guid.NewGuid(),
             EventType = AgentEventTypes.Registration,
-            OccurredAt = DateTimeOffset.UtcNow,
-            ReceivedAt = DateTimeOffset.UtcNow,
+            OccurredAt = occurred,
+            ReceivedAt = occurred,
             PayloadJson = JsonSerializer.Serialize(new
             {
                 kind = AgentEventTypes.Registration,
                 username = staff.Username,
-                deviceKeyPrefix = devicePrefix
+                deviceKeyPrefix = devicePrefix,
+                businessLocal = biz.BusinessLocalIso,
+                businessTimeZoneId = biz.TimeZoneId,
+                businessClockVersion = biz.ClockVersion,
+                businessSynchronized = biz.Synchronized
             })
-        });
+        };
+        CompanyBusinessTime.StampEvent(registration, company, occurred);
+        db.AgentEvents.Add(registration);
         await db.SaveChangesAsync(ct);
         return CreateSession(staff, company, companyToken: null);
     }

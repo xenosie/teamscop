@@ -168,6 +168,7 @@
 
             <Button Name="BtnTeams"
                     Classes="ts-sidebar"
+                    IsVisible="{Binding ShowTeamsNav}"
                     Command="{Binding NavigateCommand}"
                     CommandParameter="Teams">
               <StackPanel Orientation="Horizontal" Spacing="12">
@@ -179,6 +180,7 @@
 
             <Button Name="BtnLeaderboard"
                     Classes="ts-sidebar"
+                    IsVisible="{Binding ShowLeaderboardNav}"
                     Command="{Binding NavigateCommand}"
                     CommandParameter="Leaderboard">
               <StackPanel Orientation="Horizontal" Spacing="12">
@@ -190,6 +192,7 @@
 
             <Button Name="BtnSettings"
                     Classes="ts-sidebar"
+                    IsVisible="{Binding ShowCompanySettingsNav}"
                     Command="{Binding NavigateCommand}"
                     CommandParameter="Settings">
               <StackPanel Orientation="Horizontal" Spacing="12">
@@ -242,6 +245,7 @@
           <StackPanel Spacing="0">
             <Button Name="BtnDetailSummary"
                     Classes="ts-staff-detail"
+                    IsVisible="{Binding CanShowSummary}"
                     Command="{Binding NavigateStaffDetailCommand}"
                     CommandParameter="Summary">
               <StackPanel Orientation="Horizontal" Spacing="10">
@@ -252,6 +256,7 @@
             </Button>
             <Button Name="BtnDetailScreenshot"
                     Classes="ts-staff-detail"
+                    IsVisible="{Binding CanShowScreenshot}"
                     Command="{Binding NavigateStaffDetailCommand}"
                     CommandParameter="Screenshot">
               <StackPanel Orientation="Horizontal" Spacing="10">
@@ -262,6 +267,7 @@
             </Button>
             <Button Name="BtnDetailBrowsing"
                     Classes="ts-staff-detail"
+                    IsVisible="{Binding CanShowBrowsing}"
                     Command="{Binding NavigateStaffDetailCommand}"
                     CommandParameter="BrowsingHistory">
               <StackPanel Orientation="Horizontal" Spacing="10">
@@ -272,6 +278,7 @@
             </Button>
             <Button Name="BtnDetailTimeTrack"
                     Classes="ts-staff-detail"
+                    IsVisible="{Binding CanShowTimeTrack}"
                     Command="{Binding NavigateStaffDetailCommand}"
                     CommandParameter="TimeTrack">
               <StackPanel Orientation="Horizontal" Spacing="10">
@@ -282,12 +289,24 @@
             </Button>
             <Button Name="BtnDetailAppHistory"
                     Classes="ts-staff-detail"
+                    IsVisible="{Binding CanShowAppHistory}"
                     Command="{Binding NavigateStaffDetailCommand}"
                     CommandParameter="AppHistory">
               <StackPanel Orientation="Horizontal" Spacing="10">
                 <heroIcons:HeroIcon Name="IconDetailAppHistory" Type="QueueList" Kind="Outline"
                                     Width="18" Height="18" Foreground="{StaticResource TsAccentBrush}" />
                 <TextBlock Text="App history" VerticalAlignment="Center" FontWeight="SemiBold" />
+              </StackPanel>
+            </Button>
+            <Button Name="BtnDetailStaffSettings"
+                    Classes="ts-staff-detail"
+                    IsVisible="{Binding CanShowStaffTrackingSettings}"
+                    Command="{Binding NavigateStaffDetailCommand}"
+                    CommandParameter="Settings">
+              <StackPanel Orientation="Horizontal" Spacing="10">
+                <heroIcons:HeroIcon Name="IconDetailStaffSettings" Type="Cog6Tooth" Kind="Outline"
+                                    Width="18" Height="18" Foreground="{StaticResource TsAccentBrush}" />
+                <TextBlock Text="Settings" VerticalAlignment="Center" FontWeight="SemiBold" />
               </StackPanel>
             </Button>
           </StackPanel>
@@ -300,89 +319,126 @@
           <views:TeamsBoardView DataContext="{Binding TeamsBoard}" />
         </Panel>
 
+        <Panel IsVisible="{Binding IsSettings}">
+          <views:SettingsView DataContext="{Binding Settings}" />
+        </Panel>
+
+        <TextBlock Text="Leaderboard"
+                   FontSize="22"
+                   FontWeight="SemiBold"
+                   Margin="28"
+                   Foreground="{StaticResource TsTextBrush}"
+                   IsVisible="{Binding IsLeaderboard}" />
+
         <Panel IsVisible="{Binding HasSelectedStaff}" Margin="28">
-          <StackPanel IsVisible="{Binding IsStaffDetailSummary}" Spacing="8">
-            <TextBlock Text="{Binding SelectedStaff.Name}"
-                       FontSize="22"
-                       FontWeight="SemiBold"
-                       Foreground="{StaticResource TsTextBrush}" />
-            <TextBlock Text="Summary"
-                       FontSize="14"
-                       Classes="ts-muted" />
-          </StackPanel>
-          <TextBlock Text="Screenshot"
-                     FontSize="22"
-                     FontWeight="SemiBold"
-                     Foreground="{StaticResource TsTextBrush}"
-                     IsVisible="{Binding IsStaffDetailScreenshot}" />
-          <TextBlock Text="Browsing History"
-                     FontSize="22"
-                     FontWeight="SemiBold"
-                     Foreground="{StaticResource TsTextBrush}"
-                     IsVisible="{Binding IsStaffDetailBrowsingHistory}" />
-          <TextBlock Text="Time Track"
-                     FontSize="22"
-                     FontWeight="SemiBold"
-                     Foreground="{StaticResource TsTextBrush}"
-                     IsVisible="{Binding IsStaffDetailTimeTrack}" />
-          <DockPanel IsVisible="{Binding IsStaffDetailAppHistory}" LastChildFill="True">
-            <StackPanel DockPanel.Dock="Top" Spacing="4" Margin="0,0,0,16">
-              <TextBlock Text="App history"
-                         FontSize="22"
-                         FontWeight="SemiBold"
-                         Foreground="{StaticResource TsTextBrush}" />
-              <TextBlock Text="Registration, power off, USB, uninstall, and app broken."
-                         FontSize="13"
-                         Foreground="{StaticResource TsTextMutedBrush}" />
-            </StackPanel>
-            <Panel>
-              <TextBlock Text="{Binding AppHistory.ErrorMessage}"
-                         IsVisible="{Binding AppHistory.ShowError}"
-                         Foreground="#B91C1C"
-                         FontSize="13"
-                         TextWrapping="Wrap"
-                         VerticalAlignment="Top" />
-              <TextBlock Text="{Binding AppHistory.EmptyMessage}"
-                         IsVisible="{Binding AppHistory.ShowEmpty}"
-                         Foreground="{StaticResource TsTextMutedBrush}"
-                         FontSize="13"
-                         VerticalAlignment="Top" />
-              <TextBlock Text="Loading…"
-                         IsVisible="{Binding AppHistory.IsLoading}"
-                         Foreground="{StaticResource TsTextMutedBrush}"
-                         FontSize="13"
-                         VerticalAlignment="Top" />
-              <ScrollViewer Classes="ts-transparent-scroll"
-                            IsVisible="{Binding AppHistory.HasItems}"
-                            VerticalScrollBarVisibility="Auto"
-                            HorizontalScrollBarVisibility="Disabled">
-                <ItemsControl ItemsSource="{Binding AppHistory.Items}">
-                  <ItemsControl.ItemTemplate>
-                    <DataTemplate x:DataType="vm:AppHistoryRowViewModel">
-                      <Grid ColumnDefinitions="140,*" Margin="0,0,0,14">
-                        <TextBlock Grid.Column="0"
-                                   Text="{Binding TimeLabel}"
-                                   FontSize="12"
-                                   Foreground="{StaticResource TsTextMutedBrush}"
-                                   VerticalAlignment="Top"
-                                   Margin="0,2,16,0" />
-                        <StackPanel Grid.Column="1" Spacing="2">
-                          <TextBlock Text="{Binding Title}"
-                                     FontSize="14"
-                                     FontWeight="SemiBold"
-                                     Foreground="{StaticResource TsTextBrush}" />
-                          <TextBlock Text="{Binding Detail}"
-                                     FontSize="13"
-                                     TextWrapping="Wrap"
-                                     Foreground="{StaticResource TsTextMutedBrush}" />
-                        </StackPanel>
-                      </Grid>
-                    </DataTemplate>
-                  </ItemsControl.ItemTemplate>
-                </ItemsControl>
-              </ScrollViewer>
+          <!-- Staff section content -->
+          <Panel Margin="0,8,48,0">
+            <Panel IsVisible="{Binding IsStaffDetailSummary}">
+              <views:StaffSummaryView DataContext="{Binding StaffSummary}" />
             </Panel>
-          </DockPanel>
+            <Panel IsVisible="{Binding IsStaffDetailScreenshot}">
+              <views:ScreenshotGalleryView DataContext="{Binding Screenshots}" />
+            </Panel>
+            <Panel IsVisible="{Binding IsStaffDetailBrowsingHistory}">
+              <views:BrowsingHistoryView DataContext="{Binding Browsing}" />
+            </Panel>
+            <Panel IsVisible="{Binding IsStaffDetailTimeTrack}">
+              <views:TimeTrackView DataContext="{Binding TimeTrack}" />
+            </Panel>
+            <Panel IsVisible="{Binding IsStaffDetailSettings}">
+              <views:StaffTrackingSettingsView DataContext="{Binding StaffTrackingSettings}" />
+            </Panel>
+            <DockPanel IsVisible="{Binding IsStaffDetailAppHistory}" LastChildFill="True">
+              <StackPanel DockPanel.Dock="Top" Spacing="4" Margin="0,0,0,16">
+                <TextBlock Text="App history"
+                           FontSize="22"
+                           FontWeight="SemiBold"
+                           Foreground="{StaticResource TsTextBrush}" />
+                <TextBlock Text="Lifecycle history: registration, power off, USB, uninstall, and app broken."
+                           FontSize="13"
+                           Foreground="{StaticResource TsTextMutedBrush}" />
+              </StackPanel>
+              <Panel>
+                <TextBlock Text="{Binding AppHistory.ErrorMessage}"
+                           IsVisible="{Binding AppHistory.ShowError}"
+                           Foreground="#B91C1C"
+                           FontSize="13"
+                           TextWrapping="Wrap"
+                           VerticalAlignment="Top" />
+                <TextBlock Text="{Binding AppHistory.EmptyMessage}"
+                           IsVisible="{Binding AppHistory.ShowEmpty}"
+                           Foreground="{StaticResource TsTextMutedBrush}"
+                           FontSize="13"
+                           VerticalAlignment="Top" />
+                <TextBlock Text="Loading…"
+                           IsVisible="{Binding AppHistory.IsLoading}"
+                           Foreground="{StaticResource TsTextMutedBrush}"
+                           FontSize="13"
+                           VerticalAlignment="Top" />
+                <ScrollViewer Classes="ts-transparent-scroll"
+                              IsVisible="{Binding AppHistory.HasItems}"
+                              VerticalScrollBarVisibility="Auto"
+                              HorizontalScrollBarVisibility="Disabled">
+                  <ItemsControl ItemsSource="{Binding AppHistory.Items}">
+                    <ItemsControl.ItemTemplate>
+                      <DataTemplate x:DataType="vm:AppHistoryRowViewModel">
+                        <Grid ColumnDefinitions="140,*" Margin="0,0,0,14">
+                          <TextBlock Grid.Column="0"
+                                     Text="{Binding TimeLabel}"
+                                     FontSize="12"
+                                     Foreground="{StaticResource TsTextMutedBrush}"
+                                     VerticalAlignment="Top"
+                                     Margin="0,2,16,0" />
+                          <StackPanel Grid.Column="1" Spacing="2">
+                            <TextBlock Text="{Binding Title}"
+                                       FontSize="14"
+                                       FontWeight="SemiBold"
+                                       Foreground="{StaticResource TsTextBrush}" />
+                            <TextBlock Text="{Binding Detail}"
+                                       FontSize="13"
+                                       TextWrapping="Wrap"
+                                       Foreground="{StaticResource TsTextMutedBrush}" />
+                          </StackPanel>
+                        </Grid>
+                      </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                  </ItemsControl>
+                </ScrollViewer>
+              </Panel>
+            </DockPanel>
+          </Panel>
+
+          <!-- Pinned calendar control (all staff sub-sections) -->
+          <StackPanel Orientation="Horizontal"
+                      HorizontalAlignment="Right"
+                      VerticalAlignment="Top"
+                      Spacing="10"
+                      ZIndex="20">
+            <TextBlock Text="{Binding PeriodFilter.RangeLabel}"
+                       FontSize="13"
+                       VerticalAlignment="Center"
+                       Foreground="{StaticResource TsTextMutedBrush}" />
+            <Border Width="8" Height="8"
+                    Background="{StaticResource TsAccentBrush}"
+                    VerticalAlignment="Center"
+                    IsVisible="{Binding PeriodFilter.HasActiveFilter}" />
+            <Button Classes="ts-link"
+                    Width="40" Height="40"
+                    Padding="0"
+                    Command="{Binding PeriodFilter.ToggleCalendarCommand}"
+                    ToolTip.Tip="Filter by date or period">
+              <heroIcons:HeroIcon Type="CalendarDays" Kind="Outline" Width="22" Height="22"
+                                  Foreground="{StaticResource TsAccentBrush}" />
+            </Button>
+          </StackPanel>
+
+          <Border HorizontalAlignment="Right"
+                  VerticalAlignment="Top"
+                  Margin="0,48,0,0"
+                  ZIndex="30"
+                  IsVisible="{Binding PeriodFilter.IsCalendarOpen}">
+            <views:StaffPeriodCalendarView DataContext="{Binding PeriodFilter}" />
+          </Border>
         </Panel>
       </Panel>
     </Grid>

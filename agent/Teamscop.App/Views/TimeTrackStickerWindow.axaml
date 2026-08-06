@@ -1,0 +1,27 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="Teamscop.App.Views.TimeTrackStickerWindow"
+        Title="Teamscop"
+        Width="320" Height="32"
+        MinWidth="240" MinHeight="28"
+        MaxWidth="480" MaxHeight="40"
+        CanResize="False"
+        ShowInTaskbar="False"
+        Topmost="True"
+        SystemDecorations="None"
+        ExtendClientAreaToDecorationsHint="True"
+        ExtendClientAreaChromeHints="NoChrome"
+        Background="Transparent"
+        TransparencyLevelHint="Transparent"
+        WindowStartupLocation="Manual">
+  <Border Background="#F8FAFC"
+          BorderBrush="#2563EB"
+          BorderThickness="1"
+          CornerRadius="0"
+          ClipToBounds="True"
+          PointerPressed="OnDragPressed">
+    <Grid Name="TimelineBar"
+          Margin="2"
+          Background="#E2E8F0" />
+  </Border>
+</Window>

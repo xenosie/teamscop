@@ -10,6 +10,10 @@ namespace Teamscop.Api.Services;
 
 public interface IJwtTokenService
 {
+    /// <summary>
+    /// Creates a non-expiring access token. <paramref name="ExpiresInSeconds"/> is always 0
+    /// (no lifetime / never expires).
+    /// </summary>
     (string Token, long ExpiresInSeconds) CreateAccessToken(UserAccount user);
 }
 
@@ -19,7 +23,6 @@ public sealed class JwtTokenService(IOptions<JwtOptions> options) : IJwtTokenSer
 
     public (string Token, long ExpiresInSeconds) CreateAccessToken(UserAccount user)
     {
-        var expires = DateTimeOffset.UtcNow.AddMinutes(_options.AccessTokenMinutes);
         var claims = new List<Claim>
         {
             new(JwtRegisteredClaimNames.Sub, user.Id.ToString()),
@@ -32,15 +35,17 @@ public sealed class JwtTokenService(IOptions<JwtOptions> options) : IJwtTokenSer
 
         var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_options.Key));
         var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
+
+        // No `exp` / `nbf` — sessions do not expire. API validates signature + issuer/audience only.
         var token = new JwtSecurityToken(
             issuer: _options.Issuer,
             audience: _options.Audience,
             claims: claims,
-            expires: expires.UtcDateTime,
+            notBefore: null,
+            expires: null,
             signingCredentials: creds);
 
         var encoded = new JwtSecurityTokenHandler().WriteToken(token);
-        var expiresIn = Math.Max(1, (long)(expires - DateTimeOffset.UtcNow).TotalSeconds);
-        return (encoded, expiresIn);
+        return (encoded, ExpiresInSeconds: 0);
     }
 }

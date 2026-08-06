@@ -18,6 +18,9 @@ public interface IAuthorityService
     Task<bool> CanViewEventTypeAsync(Guid viewerId, string eventType, CancellationToken ct);
     Task<bool> CanGenerateTotpAsync(Guid viewerId, CancellationToken ct);
     Task<bool> CanManageTeamsAsync(Guid viewerId, CancellationToken ct);
+    Task<bool> IsTeamLeaderAsync(Guid userId, CancellationToken ct);
+    Task<bool> LeadsTeamMemberAsync(Guid leaderUserId, Guid memberStaffId, CancellationToken ct);
+    Task<IReadOnlyList<Guid>> ListLedMemberIdsAsync(Guid leaderUserId, CancellationToken ct);
     Task<IReadOnlyList<PolicemanDto>> ListPolicemenAsync(Guid adminUserId, CancellationToken ct);
     Task<PolicemanDto> UpsertPolicemanAsync(Guid adminUserId, Guid staffUserId, IReadOnlyList<string> packages, CancellationToken ct);
     Task RevokePolicemanAsync(Guid adminUserId, Guid staffUserId, CancellationToken ct);
@@ -54,6 +57,24 @@ public sealed class AuthorityService(AppDbContext db, IHubContext<ConfigHub> hub
                 .ToListAsync(ct)
             : [];
 
+        // Team leaders get inherent tracking view packages (team-scoped via CanViewStaffAsync).
+        // Never auto-grant USB / uninstall / team_management.
+        if (await IsTeamLeaderAsync(userId, ct))
+        {
+            foreach (var inherent in new[]
+                     {
+                         AuthorityPackageIds.ViewScreenshot,
+                         AuthorityPackageIds.ViewTimeTrack,
+                         AuthorityPackageIds.ViewBrowserHistory
+                     })
+            {
+                if (!packages.Contains(inherent, StringComparer.Ordinal))
+                {
+                    packages.Add(inherent);
+                }
+            }
+        }
+
         return new EffectiveAuthoritiesDto
         {
             UserId = user.Id,
@@ -78,6 +99,15 @@ public sealed class AuthorityService(AppDbContext db, IHubContext<ConfigHub> hub
             return true;
         }
 
+        // Inherent team-leader tracking views (scoped elsewhere to team members).
+        if (normalized is AuthorityPackageIds.ViewScreenshot
+            or AuthorityPackageIds.ViewTimeTrack
+            or AuthorityPackageIds.ViewBrowserHistory
+            && await IsTeamLeaderAsync(userId, ct))
+        {
+            return true;
+        }
+
         if (!user.IsPoliceman)
         {
             return false;
@@ -97,25 +127,38 @@ public sealed class AuthorityService(AppDbContext db, IHubContext<ConfigHub> hub
 
     public async Task<bool> CanViewCompanyStaffAsync(Guid viewerId, CancellationToken ct)
     {
-        var eff = await GetEffectiveAsync(viewerId, ct);
-        if (eff.IsAdmin)
+        var user = await db.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Id == viewerId, ct);
+        if (user is null)
+        {
+            return false;
+        }
+
+        if (user.Role == UserRole.Admin)
         {
             return true;
         }
 
-        return eff.Packages.Any(p =>
-            p is AuthorityPackageIds.ViewScreenshot
-                or AuthorityPackageIds.ViewTimeTrack
-                or AuthorityPackageIds.ViewBrowserHistory
-                or AuthorityPackageIds.UsbApproval
-                or AuthorityPackageIds.UninstallApproval);
+        // Policeman with any monitoring/approval package → company-wide list.
+        if (user.IsPoliceman)
+        {
+            return await db.PolicemanAuthorityGrants.AsNoTracking()
+                .AnyAsync(g => g.StaffUserId == viewerId && (
+                    g.PackageId == AuthorityPackageIds.ViewScreenshot
+                    || g.PackageId == AuthorityPackageIds.ViewTimeTrack
+                    || g.PackageId == AuthorityPackageIds.ViewBrowserHistory
+                    || g.PackageId == AuthorityPackageIds.UsbApproval
+                    || g.PackageId == AuthorityPackageIds.UninstallApproval), ct);
+        }
+
+        return false;
     }
 
     public async Task<bool> CanViewStaffAsync(Guid viewerId, Guid targetStaffId, CancellationToken ct)
     {
+        // Leaders/police/staff never monitor themselves (sticker uses a dedicated self-timetrack path).
         if (viewerId == targetStaffId)
         {
-            return true;
+            return false;
         }
 
         var viewer = await db.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Id == viewerId, ct);
@@ -130,7 +173,13 @@ public sealed class AuthorityService(AppDbContext db, IHubContext<ConfigHub> hub
             return false;
         }
 
-        return await CanViewCompanyStaffAsync(viewerId, ct);
+        if (viewer.Role == UserRole.Admin || await CanViewCompanyStaffAsync(viewerId, ct))
+        {
+            return true;
+        }
+
+        // Team leader → only members of their team.
+        return await LeadsTeamMemberAsync(viewerId, targetStaffId, ct);
     }
 
     public async Task<bool> CanViewEventTypeAsync(Guid viewerId, string eventType, CancellationToken ct)
@@ -147,7 +196,7 @@ public sealed class AuthorityService(AppDbContext db, IHubContext<ConfigHub> hub
             AgentEventTypes.TimeTrack => eff.Packages.Contains(AuthorityPackageIds.ViewTimeTrack),
             AgentEventTypes.BrowserHistory => eff.Packages.Contains(AuthorityPackageIds.ViewBrowserHistory),
             AgentEventTypes.UsbEvent => eff.Packages.Contains(AuthorityPackageIds.UsbApproval),
-            // Phase 9 lifecycle history (admins already pass above).
+            // Phase 9 lifecycle history — never inherent for team leaders.
             AgentEventTypes.Registration or AgentEventTypes.PowerOff
                 or AgentEventTypes.Uninstall or AgentEventTypes.AppBroken
                 => eff.Packages.Contains(AuthorityPackageIds.UninstallApproval),
@@ -161,11 +210,28 @@ public sealed class AuthorityService(AppDbContext db, IHubContext<ConfigHub> hub
     }
 
     public Task<bool> CanGenerateTotpAsync(Guid viewerId, CancellationToken ct)
-        => HasAnyAsync(viewerId,
+        => HasAnyGrantedAsync(viewerId,
             [AuthorityPackageIds.UsbApproval, AuthorityPackageIds.UninstallApproval], ct);
 
     public Task<bool> CanManageTeamsAsync(Guid viewerId, CancellationToken ct)
-        => HasAsync(viewerId, AuthorityPackageIds.TeamManagement, ct);
+        => HasGrantedAsync(viewerId, AuthorityPackageIds.TeamManagement, ct);
+
+    public Task<bool> IsTeamLeaderAsync(Guid userId, CancellationToken ct)
+        => db.Teams.AsNoTracking().AnyAsync(t => t.LeaderUserId == userId, ct);
+
+    public Task<bool> LeadsTeamMemberAsync(Guid leaderUserId, Guid memberStaffId, CancellationToken ct)
+        => db.Teams.AsNoTracking()
+            .AnyAsync(t => t.LeaderUserId == leaderUserId
+                           && t.Members.Any(m => m.StaffUserId == memberStaffId), ct);
+
+    public async Task<IReadOnlyList<Guid>> ListLedMemberIdsAsync(Guid leaderUserId, CancellationToken ct)
+    {
+        return await db.Teams.AsNoTracking()
+            .Where(t => t.LeaderUserId == leaderUserId)
+            .SelectMany(t => t.Members.Select(m => m.StaffUserId))
+            .Distinct()
+            .ToListAsync(ct);
+    }
 
     public async Task<IReadOnlyList<PolicemanDto>> ListPolicemenAsync(Guid adminUserId, CancellationToken ct)
     {
@@ -229,25 +295,19 @@ public sealed class AuthorityService(AppDbContext db, IHubContext<ConfigHub> hub
 
         await db.SaveChangesAsync(ct);
 
-        var dto = new EffectiveAuthoritiesDto
-        {
-            UserId = staff.Id,
-            IsAdmin = false,
-            IsPoliceman = true,
-            AuthorityVersion = staff.AuthorityVersion,
-            Packages = normalized.OrderBy(p => p).ToList()
-        };
+        var dto = await GetEffectiveAsync(staffUserId, ct);
         await hub.Clients.Group(ConfigHub.StaffGroup(staffUserId))
             .SendAsync("AuthoritiesUpdated", dto, ct);
         await hub.Clients.Group(ConfigHub.CompanyGroup(admin.CompanyId))
             .SendAsync("PolicemenUpdated", await ListPolicemenAsync(adminUserId, ct), ct);
 
+        // Return granted packages only — never merge inherent team-leader views into the police grant list.
         return new PolicemanDto
         {
             StaffUserId = staff.Id,
             Username = staff.Username,
             IsPoliceman = true,
-            Packages = dto.Packages,
+            Packages = normalized,
             UpdatedAt = staff.PolicemanUpdatedAt
         };
     }
@@ -269,21 +329,38 @@ public sealed class AuthorityService(AppDbContext db, IHubContext<ConfigHub> hub
         staff.AuthorityVersion += 1;
         await db.SaveChangesAsync(ct);
 
-        var dto = new EffectiveAuthoritiesDto
-        {
-            UserId = staff.Id,
-            IsAdmin = false,
-            IsPoliceman = false,
-            AuthorityVersion = staff.AuthorityVersion,
-            Packages = []
-        };
+        var dto = await GetEffectiveAsync(staffUserId, ct);
         await hub.Clients.Group(ConfigHub.StaffGroup(staffUserId))
             .SendAsync("AuthoritiesUpdated", dto, ct);
         await hub.Clients.Group(ConfigHub.CompanyGroup(admin.CompanyId))
             .SendAsync("PolicemenUpdated", await ListPolicemenAsync(adminUserId, ct), ct);
     }
 
-    private async Task<bool> HasAnyAsync(Guid userId, IReadOnlyList<string> packages, CancellationToken ct)
+    /// <summary>Package granted via policeman table or admin — not inherent leader views.</summary>
+    private async Task<bool> HasGrantedAsync(Guid userId, string packageId, CancellationToken ct)
+    {
+        var normalized = AuthorityPackageIds.Normalize(packageId);
+        var user = await db.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Id == userId, ct);
+        if (user is null)
+        {
+            return false;
+        }
+
+        if (user.Role == UserRole.Admin)
+        {
+            return true;
+        }
+
+        if (!user.IsPoliceman)
+        {
+            return false;
+        }
+
+        return await db.PolicemanAuthorityGrants.AsNoTracking()
+            .AnyAsync(g => g.StaffUserId == userId && g.PackageId == normalized, ct);
+    }
+
+    private async Task<bool> HasAnyGrantedAsync(Guid userId, IReadOnlyList<string> packages, CancellationToken ct)
     {
         var user = await db.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Id == userId, ct);
         if (user is null)

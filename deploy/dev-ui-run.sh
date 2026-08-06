@@ -42,18 +42,42 @@ run_dll() {
   local dll="$1"
   local name
   name="$(basename "$dll" .dll)"
-  # Replace previous instance of same app
-  pkill -f "$name.dll" 2>/dev/null || true
-  sleep 0.3
+  # Replace ONLY this app's previous instance (never touch CRD / browsers / Xorg).
+  local old_pids
+  old_pids="$(pgrep -f "[d]otnet .*/${name}\\.dll|[d]otnet ${name}\\.dll" || true)"
+  if [[ -n "$old_pids" ]]; then
+    # shellcheck disable=SC2086
+    kill $old_pids 2>/dev/null || true
+    sleep 0.4
+  fi
+  : >"$PREVIEW_DIR/$name.log"
   echo "Launching $dll on DISPLAY=$DISPLAY"
   nohup dotnet "$dll" "${EXTRA_ARGS[@]}" >"$PREVIEW_DIR/$name.log" 2>&1 &
-  echo $! >"$PREVIEW_DIR/$name.pid"
+  local pid=$!
+  echo "$pid" >"$PREVIEW_DIR/$name.pid"
   sleep 2
+  if ! kill -0 "$pid" 2>/dev/null; then
+    echo "ERROR: $name exited immediately. Last log lines:"
+    tail -40 "$PREVIEW_DIR/$name.log" || true
+    exit 4
+  fi
+  # Raise the app window if present (best-effort; do not fail launch).
+  if command -v xdotool >/dev/null && command -v wmctrl >/dev/null; then
+    local wid
+    wid="$(wmctrl -l 2>/dev/null | awk '/[[:space:]]Teamscop$/ {print $1; exit}' || true)"
+    if [[ -n "${wid:-}" ]]; then
+      xdotool windowactivate "$wid" 2>/dev/null || true
+      xdotool windowraise "$wid" 2>/dev/null || true
+      echo "Window raised: $wid"
+    else
+      echo "WARNING: process is up but no Teamscop window listed yet."
+    fi
+  fi
   if command -v scrot >/dev/null; then
     scrot "$PREVIEW_DIR/$name.png" || true
     echo "Screenshot: $PREVIEW_DIR/$name.png"
   fi
-  echo "Log: $PREVIEW_DIR/$name.log  PID=$(cat "$PREVIEW_DIR/$name.pid")"
+  echo "Log: $PREVIEW_DIR/$name.log  PID=$pid"
   echo "Look at Chrome Remote Desktop desktop for the live window."
 }
 

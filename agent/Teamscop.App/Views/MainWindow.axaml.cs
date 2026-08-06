@@ -1,4 +1,5 @@
 using Avalonia.Controls;
+using Teamscop.App.Services;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using HeroIconsAvalonia.Controls;
@@ -13,7 +14,7 @@ public partial class MainWindow : Window
     private static readonly IBrush AccentIcon = Brush.Parse("#2563EB");
 
     public MainWindow()
-        : this(new LocalAgentStore(AgentRole.Admin).Load())
+        : this(AppSessionStore.ForActiveSession().Load())
     {
     }
 
@@ -24,6 +25,10 @@ public partial class MainWindow : Window
         DataContext = _vm;
         _vm.TeamsBoard.RequestPickMember = (title, candidates) =>
             AddMemberDialog.PickAsync(this, title, candidates);
+        _vm.Settings.RequestPickStaff = (title, candidates) =>
+            AddMemberDialog.PickAsync(this, title, candidates);
+        _vm.Browsing.RequestOpenDomainDetail = (domain, staffId, from, to) =>
+            _ = BrowsingDomainDetailWindow.ShowAsync(this, domain, staffId, from, to);
         _vm.PropertyChanged += (_, e) =>
         {
             if (e.PropertyName is nameof(MainViewModel.Section)
@@ -38,7 +43,17 @@ public partial class MainWindow : Window
                 or nameof(MainViewModel.IsStaffDetailScreenshot)
                 or nameof(MainViewModel.IsStaffDetailBrowsingHistory)
                 or nameof(MainViewModel.IsStaffDetailTimeTrack)
-                or nameof(MainViewModel.IsStaffDetailAppHistory))
+                or nameof(MainViewModel.IsStaffDetailAppHistory)
+                or nameof(MainViewModel.IsStaffDetailSettings)
+                or nameof(MainViewModel.IsAdminSession)
+                or nameof(MainViewModel.CanShowSummary)
+                or nameof(MainViewModel.CanShowScreenshot)
+                or nameof(MainViewModel.CanShowBrowsing)
+                or nameof(MainViewModel.CanShowTimeTrack)
+                or nameof(MainViewModel.CanShowAppHistory)
+                or nameof(MainViewModel.CanShowStaffTrackingSettings)
+                or nameof(MainViewModel.ShowTeamsNav)
+                or nameof(MainViewModel.ShowLeaderboardNav))
             {
                 RefreshSidebar();
             }
@@ -53,7 +68,9 @@ public partial class MainWindow : Window
             RefreshSidebar();
             await _vm.RefreshProfileAsync();
             ApplyAvatarImage(_vm.CompanyAvatar);
+            RefreshSidebar();
         };
+        Closed += async (_, _) => await _vm.DisposeAsync();
     }
 
     private void ApplyAvatarImage(Bitmap? bitmap)
@@ -93,6 +110,7 @@ public partial class MainWindow : Window
             SetSelected(BtnDetailBrowsing, IconDetailBrowsing, _vm.IsStaffDetailBrowsingHistory);
             SetSelected(BtnDetailTimeTrack, IconDetailTimeTrack, _vm.IsStaffDetailTimeTrack);
             SetSelected(BtnDetailAppHistory, IconDetailAppHistory, _vm.IsStaffDetailAppHistory);
+            SetSelected(BtnDetailStaffSettings, IconDetailStaffSettings, _vm.IsStaffDetailSettings);
         }
     }
 

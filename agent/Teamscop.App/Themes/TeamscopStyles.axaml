@@ -187,4 +187,37 @@
     <Setter Property="Background" Value="#992563EB" />
   </Style>
 
+  <!-- Staff period calendar -->
+  <Style Selector="Button.ts-cal-day">
+    <Setter Property="Theme" Value="{StaticResource TsCalDayButton}" />
+  </Style>
+  <Style Selector="ItemsControl.ts-cal-grid > ContentPresenter">
+    <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+    <Setter Property="VerticalContentAlignment" Value="Stretch" />
+    <Setter Property="Padding" Value="0" />
+    <Setter Property="Margin" Value="0" />
+  </Style>
+  <Style Selector="Button.ts-cal-mode">
+    <Setter Property="Background" Value="{StaticResource TsBackgroundBrush}" />
+    <Setter Property="BorderBrush" Value="{StaticResource TsBorderBrush}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="Foreground" Value="{StaticResource TsTextBrush}" />
+    <Setter Property="CornerRadius" Value="0" />
+    <Setter Property="Cursor" Value="Hand" />
+  </Style>
+  <Style Selector="Button.ts-cal-mode:pointerover">
+    <Setter Property="Background" Value="{StaticResource TsAccentSoftBrush}" />
+    <Setter Property="BorderBrush" Value="{StaticResource TsAccentBrush}" />
+  </Style>
+  <Style Selector="Button.ts-cal-mode.selected">
+    <Setter Property="Background" Value="{StaticResource TsAccentBrush}" />
+    <Setter Property="Foreground" Value="White" />
+    <Setter Property="BorderBrush" Value="{StaticResource TsAccentHoverBrush}" />
+  </Style>
+  <Style Selector="Button.ts-cal-mode.selected:pointerover">
+    <Setter Property="Background" Value="{StaticResource TsAccentHoverBrush}" />
+  </Style>
+
+
 </Styles>
+

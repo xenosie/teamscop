@@ -1,0 +1,85 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:Teamscop.App.ViewModels"
+             x:Class="Teamscop.App.Views.StaffTrackingSettingsView"
+             x:DataType="vm:StaffTrackingSettingsViewModel">
+
+  <DockPanel LastChildFill="True">
+    <StackPanel DockPanel.Dock="Top" Spacing="4" Margin="0,0,0,16">
+      <TextBlock Text="Settings"
+                 FontSize="22"
+                 FontWeight="SemiBold"
+                 Foreground="{StaticResource TsTextBrush}" />
+      <TextBlock Text="{Binding StaffName}"
+                 FontSize="14"
+                 Classes="ts-muted" />
+      <TextBlock Text="Per-staff screenshot capture. Changes sync to the staff agent immediately when online."
+                 FontSize="13"
+                 Foreground="{StaticResource TsTextMutedBrush}"
+                 TextWrapping="Wrap"
+                 Margin="0,4,0,0" />
+    </StackPanel>
+
+    <StackPanel Spacing="16" MaxWidth="480" HorizontalAlignment="Left">
+      <TextBlock Text="{Binding ErrorMessage}"
+                 IsVisible="{Binding ShowError}"
+                 Foreground="#B91C1C"
+                 FontSize="13"
+                 TextWrapping="Wrap" />
+      <TextBlock Text="Loading…"
+                 IsVisible="{Binding IsLoading}"
+                 Foreground="{StaticResource TsTextMutedBrush}"
+                 FontSize="13" />
+
+      <StackPanel Spacing="10" IsEnabled="{Binding CanEdit}">
+        <TextBlock Text="Screenshot quality"
+                   FontSize="14"
+                   FontWeight="SemiBold"
+                   Foreground="{StaticResource TsTextBrush}" />
+        <TextBlock Text="JPEG size budget for each capture (all displays)."
+                   FontSize="12"
+                   Classes="ts-muted"
+                   TextWrapping="Wrap" />
+        <ComboBox ItemsSource="{Binding QualityOptions}"
+                  SelectedItem="{Binding SelectedQuality}"
+                  MinHeight="40"
+                  HorizontalAlignment="Stretch" />
+
+        <TextBlock Text="Screenshot period"
+                   FontSize="14"
+                   FontWeight="SemiBold"
+                   Foreground="{StaticResource TsTextBrush}"
+                   Margin="0,10,0,0" />
+        <TextBlock Text="How often the staff agent captures screenshots. Default is 3 minutes."
+                   FontSize="12"
+                   Classes="ts-muted"
+                   TextWrapping="Wrap" />
+        <ComboBox ItemsSource="{Binding PeriodOptions}"
+                  SelectedItem="{Binding SelectedPeriod}"
+                  MinHeight="40"
+                  HorizontalAlignment="Stretch" />
+
+        <TextBlock Text="{Binding ConfigVersionLabel}"
+                   FontSize="12"
+                   Classes="ts-muted"
+                   Margin="0,4,0,0"
+                   IsVisible="{Binding HasLoaded}" />
+
+        <StackPanel Orientation="Horizontal" Spacing="10" Margin="0,8,0,0">
+          <Button Classes="ts-primary"
+                  Content="Save"
+                  MinWidth="120"
+                  Height="40"
+                  Command="{Binding SaveCommand}"
+                  IsEnabled="{Binding CanEdit}" />
+        </StackPanel>
+
+        <TextBlock Text="{Binding StatusMessage}"
+                   IsVisible="{Binding ShowStatus}"
+                   Foreground="{StaticResource TsAccentBrush}"
+                   FontSize="13"
+                   TextWrapping="Wrap" />
+      </StackPanel>
+    </StackPanel>
+  </DockPanel>
+</UserControl>

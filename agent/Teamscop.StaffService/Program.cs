@@ -69,6 +69,7 @@ builder.Services.AddSingleton(sp => new TrackingCoordinator(
     sp.GetRequiredService<IOutboxQueue>(),
     sp.GetRequiredService<ChromeHistoryWatcher>(),
     businessClock: sp.GetRequiredService<BusinessClock>()));
+builder.Services.AddSingleton(sp => new SessionHelperPipeServer(sp.GetRequiredService<TrackingCoordinator>()));
 
 builder.Services.AddSingleton(sp => new AppBrokenWatchdog(
     AppContext.BaseDirectory,
@@ -86,6 +87,7 @@ builder.Services.AddSingleton(sp =>
     }
 
     var lifecycle = sp.GetRequiredService<LifecycleApiClient>();
+    var tracking = sp.GetRequiredService<TrackingCoordinator>();
     return new UsbSessionController(
         UsbSessionController.CreatePolicy(),
         new PollingUsbDeviceWatcher(),
@@ -93,7 +95,12 @@ builder.Services.AddSingleton(sp =>
         new LifecycleUsbAccessVerifier(lifecycle),
         deviceKey: () => store.Load().DeviceKey,
         apiBase: () => store.Load().ApiBaseUrl ?? apiBase,
-        outbox: sp.GetRequiredService<IOutboxQueue>());
+        outbox: sp.GetRequiredService<IOutboxQueue>(),
+        businessStamp: () =>
+        {
+            var biz = tracking.BusinessClock.Now();
+            return (biz.BusinessLocalIso, biz.TimeZoneId, biz.ClockVersion, biz.Synchronized);
+        });
 });
 
 builder.Services.AddHostedService<StaffAgentWorker>();

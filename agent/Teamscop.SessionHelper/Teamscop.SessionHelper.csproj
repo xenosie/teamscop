@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>Teamscop.SessionHelper</RootNamespace>
+    <AssemblyName>Teamscop.SessionHelper</AssemblyName>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Teamscop.Engine.Lifecycle\Teamscop.Engine.Lifecycle.csproj" />
+    <ProjectReference Include="..\Teamscop.Engine.Tracking\Teamscop.Engine.Tracking.csproj" />
+    <ProjectReference Include="..\Teamscop.Engine.Sync\Teamscop.Engine.Sync.csproj" />
+  </ItemGroup>
+</Project>

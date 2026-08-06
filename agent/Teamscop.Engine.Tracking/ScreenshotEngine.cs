@@ -14,7 +14,7 @@ public sealed class StaffTrackingConfig
 {
     public Guid StaffUserId { get; set; }
     public ScreenshotQuality ScreenshotQuality { get; set; } = ScreenshotQuality.Medium;
-    public int ScreenshotPeriodSeconds { get; set; } = 300;
+    public int ScreenshotPeriodSeconds { get; set; } = 180; // default 3 minutes
     public bool TimeTrackEnabled { get; set; } = true;
     public bool BrowserHistoryEnabled { get; set; } = true;
     public bool ScreenshotEnabled { get; set; } = true;

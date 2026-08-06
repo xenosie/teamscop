@@ -1,5 +1,6 @@
 using Avalonia.Controls;
 using Avalonia.Interactivity;
+using Avalonia.Threading;
 using Teamscop.App.ViewModels;
 
 namespace Teamscop.App.Views;
@@ -32,6 +33,19 @@ public partial class AddMemberDialog : Window
     }
 
     public static async Task<Guid?> PickAsync(
+        Window owner, string title, IReadOnlyList<StaffCardViewModel> candidates)
+    {
+        // Windows must be created on the UI thread — callers may resume after ConfigureAwait(false).
+        if (!Dispatcher.UIThread.CheckAccess())
+        {
+            return await Dispatcher.UIThread.InvokeAsync(async () =>
+                await PickCoreAsync(owner, title, candidates).ConfigureAwait(true));
+        }
+
+        return await PickCoreAsync(owner, title, candidates);
+    }
+
+    private static async Task<Guid?> PickCoreAsync(
         Window owner, string title, IReadOnlyList<StaffCardViewModel> candidates)
     {
         var dlg = new AddMemberDialog();

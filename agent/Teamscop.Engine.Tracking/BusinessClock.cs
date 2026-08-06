@@ -94,6 +94,24 @@ public sealed class BusinessClock
         };
     }
 
+    /// <summary>
+    /// Convert a company business-local wall time (Unspecified) back to UTC using the sync formula.
+    /// </summary>
+    public static DateTimeOffset BusinessLocalToUtc(BusinessClockConfig cfg, DateTime businessLocal)
+    {
+        ArgumentNullException.ThrowIfNull(cfg);
+        var local = DateTime.SpecifyKind(businessLocal, DateTimeKind.Unspecified);
+
+        if (cfg is { IsSynchronized: true, AnchorUtc: { } anchorUtc } && cfg.AnchorBusinessLocal is { } anchorLocal)
+        {
+            return anchorUtc + (local - anchorLocal);
+        }
+
+        var tz = ResolveTimeZone(cfg.TimeZoneId);
+        var utc = TimeZoneInfo.ConvertTimeToUtc(local, tz);
+        return new DateTimeOffset(utc, TimeSpan.Zero);
+    }
+
     public static TimeZoneInfo ResolveTimeZone(string timeZoneId)
     {
         if (string.IsNullOrWhiteSpace(timeZoneId))
