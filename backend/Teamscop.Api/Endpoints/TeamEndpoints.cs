@@ -6,13 +6,13 @@ namespace Teamscop.Api.Endpoints;
 
 public static class TeamEndpoints
 {
-    public static RouteGroupBuilder MapTeamEndpoints(this WebApplication app)
+    public static IEndpointRouteBuilder MapTeamEndpoints(this WebApplication app)
     {
-        var org = app.MapGroup("/api/org").WithTags("Org");
+        var org = app.MapGroup("/api/org").WithTags("Org").RequireRateLimiting("api");
         org.MapGet("/structure", GetStructureAsync).RequireAuthorization();
         org.MapGet("/me", GetMyPlacementAsync).RequireAuthorization();
 
-        var teams = app.MapGroup("/api/teams").WithTags("Teams");
+        var teams = app.MapGroup("/api/teams").WithTags("Teams").RequireRateLimiting("api");
         teams.MapPost("/", CreateTeamAsync).RequireAuthorization();
         teams.MapPut("/{teamId:guid}", UpdateTeamAsync).RequireAuthorization();
         teams.MapDelete("/{teamId:guid}", DeleteTeamAsync).RequireAuthorization();
@@ -20,37 +20,23 @@ public static class TeamEndpoints
         teams.MapPost("/{teamId:guid}/members", AddMemberAsync).RequireAuthorization();
         teams.MapDelete("/{teamId:guid}/members/{staffUserId:guid}", RemoveMemberAsync).RequireAuthorization();
 
-        return teams;
+        return app;
     }
 
     private static async Task<IResult> GetStructureAsync(
         ClaimsPrincipal principal, ITeamService teams, CancellationToken ct)
     {
-        var userId = GetUserId(principal);
+        var userId = principal.UserId();
         if (userId is null) return Results.Unauthorized();
-        try
-        {
-            return Results.Ok(await teams.GetCompanyStructureAsync(userId.Value, ct));
-        }
-        catch (UnauthorizedAccessException ex)
-        {
-            return Results.Json(new { error = ex.Message }, statusCode: StatusCodes.Status403Forbidden);
-        }
+        return Results.Ok(await teams.GetCompanyStructureAsync(userId.Value, ct));
     }
 
     private static async Task<IResult> GetMyPlacementAsync(
         ClaimsPrincipal principal, ITeamService teams, CancellationToken ct)
     {
-        var userId = GetUserId(principal);
+        var userId = principal.UserId();
         if (userId is null) return Results.Unauthorized();
-        try
-        {
-            return Results.Ok(await teams.GetMyPlacementAsync(userId.Value, ct));
-        }
-        catch (UnauthorizedAccessException)
-        {
-            return Results.Unauthorized();
-        }
+        return Results.Ok(await teams.GetMyPlacementAsync(userId.Value, ct));
     }
 
     private static async Task<IResult> CreateTeamAsync(
@@ -59,20 +45,9 @@ public static class TeamEndpoints
         ITeamService teams,
         CancellationToken ct)
     {
-        var userId = GetUserId(principal);
+        var userId = principal.UserId();
         if (userId is null) return Results.Unauthorized();
-        try
-        {
-            return Results.Ok(await teams.CreateTeamAsync(userId.Value, body, ct));
-        }
-        catch (UnauthorizedAccessException ex)
-        {
-            return Results.Json(new { error = ex.Message }, statusCode: StatusCodes.Status403Forbidden);
-        }
-        catch (InvalidOperationException ex)
-        {
-            return Results.BadRequest(new { error = ex.Message });
-        }
+        return Results.Ok(await teams.CreateTeamAsync(userId.Value, body, ct));
     }
 
     private static async Task<IResult> UpdateTeamAsync(
@@ -82,20 +57,9 @@ public static class TeamEndpoints
         ITeamService teams,
         CancellationToken ct)
     {
-        var userId = GetUserId(principal);
+        var userId = principal.UserId();
         if (userId is null) return Results.Unauthorized();
-        try
-        {
-            return Results.Ok(await teams.UpdateTeamAsync(userId.Value, teamId, body, ct));
-        }
-        catch (UnauthorizedAccessException ex)
-        {
-            return Results.Json(new { error = ex.Message }, statusCode: StatusCodes.Status403Forbidden);
-        }
-        catch (InvalidOperationException ex)
-        {
-            return Results.BadRequest(new { error = ex.Message });
-        }
+        return Results.Ok(await teams.UpdateTeamAsync(userId.Value, teamId, body, ct));
     }
 
     private static async Task<IResult> DeleteTeamAsync(
@@ -104,21 +68,10 @@ public static class TeamEndpoints
         ITeamService teams,
         CancellationToken ct)
     {
-        var userId = GetUserId(principal);
+        var userId = principal.UserId();
         if (userId is null) return Results.Unauthorized();
-        try
-        {
-            await teams.DeleteTeamAsync(userId.Value, teamId, ct);
-            return Results.Ok(new { deleted = true, teamId });
-        }
-        catch (UnauthorizedAccessException ex)
-        {
-            return Results.Json(new { error = ex.Message }, statusCode: StatusCodes.Status403Forbidden);
-        }
-        catch (InvalidOperationException ex)
-        {
-            return Results.BadRequest(new { error = ex.Message });
-        }
+        await teams.DeleteTeamAsync(userId.Value, teamId, ct);
+        return Results.Ok(new { deleted = true, teamId });
     }
 
     private static async Task<IResult> SetMembersAsync(
@@ -128,20 +81,9 @@ public static class TeamEndpoints
         ITeamService teams,
         CancellationToken ct)
     {
-        var userId = GetUserId(principal);
+        var userId = principal.UserId();
         if (userId is null) return Results.Unauthorized();
-        try
-        {
-            return Results.Ok(await teams.SetMembersAsync(userId.Value, teamId, body, ct));
-        }
-        catch (UnauthorizedAccessException ex)
-        {
-            return Results.Json(new { error = ex.Message }, statusCode: StatusCodes.Status403Forbidden);
-        }
-        catch (InvalidOperationException ex)
-        {
-            return Results.BadRequest(new { error = ex.Message });
-        }
+        return Results.Ok(await teams.SetMembersAsync(userId.Value, teamId, body, ct));
     }
 
     private static async Task<IResult> AddMemberAsync(
@@ -151,20 +93,9 @@ public static class TeamEndpoints
         ITeamService teams,
         CancellationToken ct)
     {
-        var userId = GetUserId(principal);
+        var userId = principal.UserId();
         if (userId is null) return Results.Unauthorized();
-        try
-        {
-            return Results.Ok(await teams.AddMemberAsync(userId.Value, teamId, body.StaffUserId, ct));
-        }
-        catch (UnauthorizedAccessException ex)
-        {
-            return Results.Json(new { error = ex.Message }, statusCode: StatusCodes.Status403Forbidden);
-        }
-        catch (InvalidOperationException ex)
-        {
-            return Results.BadRequest(new { error = ex.Message });
-        }
+        return Results.Ok(await teams.AddMemberAsync(userId.Value, teamId, body.StaffUserId, ct));
     }
 
     private static async Task<IResult> RemoveMemberAsync(
@@ -174,26 +105,8 @@ public static class TeamEndpoints
         ITeamService teams,
         CancellationToken ct)
     {
-        var userId = GetUserId(principal);
+        var userId = principal.UserId();
         if (userId is null) return Results.Unauthorized();
-        try
-        {
-            return Results.Ok(await teams.RemoveMemberAsync(userId.Value, teamId, staffUserId, ct));
-        }
-        catch (UnauthorizedAccessException ex)
-        {
-            return Results.Json(new { error = ex.Message }, statusCode: StatusCodes.Status403Forbidden);
-        }
-        catch (InvalidOperationException ex)
-        {
-            return Results.BadRequest(new { error = ex.Message });
-        }
-    }
-
-    private static Guid? GetUserId(ClaimsPrincipal principal)
-    {
-        var sub = principal.FindFirstValue(ClaimTypes.NameIdentifier)
-            ?? principal.FindFirstValue("sub");
-        return Guid.TryParse(sub, out var id) ? id : null;
+        return Results.Ok(await teams.RemoveMemberAsync(userId.Value, teamId, staffUserId, ct));
     }
 }

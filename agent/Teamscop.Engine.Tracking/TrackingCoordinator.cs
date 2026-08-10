@@ -1,120 +1,171 @@
-using System.Text.Json;
 using Teamscop.Engine.Sync;
 
 namespace Teamscop.Engine.Tracking;
 
+/// <summary>How the interactive capture helper is doing, as one word the admin can be shown.</summary>
+public static class HelperStates
+{
+    /// <summary>No helper has EVER connected. Distinct from "stale" on purpose — see below.</summary>
+    public const string NeverStarted = "never_started";
+
+    /// <summary>A helper connected once and has now gone quiet.</summary>
+    public const string Stale = "stale";
+
+    public const string Alive = "alive";
+}
+
 /// <summary>
-/// Low-impact tracking orchestrator:
-/// 1) write encrypted+compressed vault record (tamper-evident chain)
-/// 2) enqueue sync outbox item stamped with company business time
+/// Low-impact tracking orchestrator for the LocalSystem service:
+/// 1) write encrypted+compressed vault records the helper sends (§1.2 keeps the data unreadable on disk)
+/// 2) enqueue sync outbox items stamped with company business time
+///
+/// <b>The service captures nothing itself, by design.</b> It used to fall back to in-process capture
+/// whenever no helper had connected, and every one of those three streams is impossible from
+/// session 0: <c>GetLastInputInfo</c> reports the calling session (so idle equalled machine uptime
+/// and every window was emitted as Rest), the service window station is attached to no display (so
+/// screenshots were always empty), and <c>LocalApplicationData</c> under LocalSystem is
+/// <c>systemprofile</c>, where no Chrome profile exists. The timetrack half was the worst of the
+/// three: it produced an unbroken chain of fabricated Rest windows, claiming the employee was
+/// present when the engine was in fact blind.
+///
+/// §5.4 ("PC off, asleep, or agent not running → rendered as idle") is a RENDERING rule for absent
+/// data. It is not a licence to invent idle records: emitting nothing renders identically in the
+/// timeline, which is the honest fact.
 /// </summary>
 public sealed class TrackingCoordinator
 {
+    /// <summary>No ping for this long and the helper is not there.</summary>
+    public static readonly TimeSpan HelperLivenessWindow = TimeSpan.FromSeconds(90);
+
+    private static readonly TimeSpan CaptureHealthWindow = TimeSpan.FromMinutes(5);
+
     private readonly SecureVault _vault;
     private readonly IOutboxQueue _outbox;
-    private readonly TimeTrackEngine _timeTrack;
-    private readonly ScreenshotEngine _screenshots = new();
-    private readonly ChromeHistoryWatcher _chrome;
     private readonly BusinessClock _businessClock;
-    private StaffTrackingConfig _config;
-    private DateTimeOffset _lastScreenshotAt = DateTimeOffset.MinValue;
-    private DateTimeOffset _lastTimeTrackFlush = DateTimeOffset.UtcNow;
-    private DateTimeOffset _lastIntegrityFullScan = DateTimeOffset.MinValue;
-    private DateTimeOffset _lastHelperSeenAt = DateTimeOffset.MinValue;
-    private DateTimeOffset _lastSuccessfulCaptureAt = DateTimeOffset.UtcNow;
-    private bool _preferSessionHelper;
 
-    /// <summary>When true, in-process capture is skipped (SessionHelper owns input/screens/Chrome).</summary>
-    public bool PreferSessionHelper
-    {
-        get => _preferSessionHelper;
-        set => _preferSessionHelper = value;
-    }
+    /// <summary>
+    /// The only clock this class reads. Defaults to <c>DateTimeOffset.UtcNow</c>, so production
+    /// behaviour is unchanged; tests inject one so the 90-second helper-liveness window and the
+    /// five-minute health window can be exercised without sleeping.
+    /// </summary>
+    private readonly Func<DateTimeOffset> _now;
+    private readonly Action<BusinessClockConfig>? _onBusinessClockChanged;
+    private StaffTrackingConfig _config;
+    private DateTimeOffset? _lastHelperSeenAt;
+    private DateTimeOffset _lastSuccessfulCaptureAt;
+    private bool _recovered;
+
+    private static readonly IReadOnlyDictionary<string, string> VaultKindToEventType =
+        new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["timetrack"] = AgentEventTypes.TimeTrack,
+            ["screenshot"] = AgentEventTypes.ScreenshotMeta,
+            ["browser_history"] = AgentEventTypes.BrowserHistory
+        };
 
     public TrackingCoordinator(
         SecureVault vault,
         IOutboxQueue outbox,
-        ChromeHistoryWatcher chrome,
         StaffTrackingConfig? initialConfig = null,
-        TimeTrackEngine? timeTrack = null,
-        BusinessClock? businessClock = null)
+        BusinessClock? businessClock = null,
+        Func<DateTimeOffset>? now = null,
+        Action<BusinessClockConfig>? onBusinessClockChanged = null)
     {
         _vault = vault;
         _outbox = outbox;
-        _chrome = chrome;
         _config = initialConfig ?? new StaffTrackingConfig();
-        _timeTrack = timeTrack ?? new TimeTrackEngine();
         _businessClock = businessClock ?? new BusinessClock();
+        _now = now ?? (() => DateTimeOffset.UtcNow);
+        _onBusinessClockChanged = onBusinessClockChanged;
+        _lastSuccessfulCaptureAt = _now();
     }
 
     public StaffTrackingConfig Config => _config;
+
     public BusinessClock BusinessClock => _businessClock;
 
-    /// <summary>Helper reported within the liveness window, or in-process capture is active.</summary>
+    /// <summary>True once any helper has ever connected. Display only — never a capture switch.</summary>
+    public bool PreferSessionHelper => _lastHelperSeenAt is not null;
+
+    /// <summary>
+    /// A helper pinged inside the liveness window.
+    ///
+    /// This used to read <c>!_preferSessionHelper || (now - _lastHelperSeenAt &lt; 90s)</c>, which is
+    /// TRUE before any helper has ever connected — so the heartbeat published
+    /// <c>helperAlive: true</c> during a total capture blackout and the server could never reach its
+    /// own "Tracking helper not running" branch. "Never seen" and "seen recently" must not be the
+    /// same value.
+    /// </summary>
     public bool IsSessionHelperAlive
-        => !_preferSessionHelper
-           || DateTimeOffset.UtcNow - _lastHelperSeenAt < TimeSpan.FromSeconds(90);
+        => _lastHelperSeenAt is { } seen && _now() - seen < HelperLivenessWindow;
+
+    /// <summary>never_started / stale / alive — so the admin is told which, not just "not ok".</summary>
+    public string HelperState => _lastHelperSeenAt is null
+        ? HelperStates.NeverStarted
+        : IsSessionHelperAlive ? HelperStates.Alive : HelperStates.Stale;
+
+    public DateTimeOffset? LastHelperSeenAtUtc => _lastHelperSeenAt;
+
+    public DateTimeOffset LastSuccessfulCaptureAtUtc => _lastSuccessfulCaptureAt;
 
     public bool IsTrackingHealthy
         => IsSessionHelperAlive
-           && DateTimeOffset.UtcNow - _lastSuccessfulCaptureAt < TimeSpan.FromMinutes(5);
+           && _now() - _lastSuccessfulCaptureAt < CaptureHealthWindow;
 
-    public long VaultTipSequence
+    /// <summary>
+    /// Why nothing is being captured, or null when capture is healthy. Surfaced in the heartbeat and
+    /// in agent-health.json so a blackout has a cause attached rather than being an unexplained hole.
+    /// </summary>
+    public string? CaptureUnavailableReason
     {
         get
         {
-            var report = _vault.Verify(fullScan: false);
-            return report.HighestSequenceFound;
+            if (!IsSessionHelperAlive)
+            {
+                return HelperState == HelperStates.NeverStarted
+                    ? "no_session_helper_never_started"
+                    : "no_session_helper_stale";
+            }
+
+            return IsTrackingHealthy ? null : "helper_connected_but_not_capturing";
         }
     }
 
-    public void NoteSessionHelperAlive()
-    {
-        _lastHelperSeenAt = DateTimeOffset.UtcNow;
-        _preferSessionHelper = true;
-    }
+    public void NoteSessionHelperAlive() => _lastHelperSeenAt = _now();
 
     public void ApplyConfig(StaffTrackingConfig config) => _config = config;
 
-    public void ApplyBusinessClock(BusinessClockConfig config) => _businessClock.Apply(config);
+    /// <summary>
+    /// Applies a new company business clock and persists it (§6.3) so a restarted service and the
+    /// out-of-process uninstall guard derive approval codes on the same company-local time offline.
+    /// </summary>
+    public void ApplyBusinessClock(BusinessClockConfig config)
+    {
+        _businessClock.Apply(config);
+        _onBusinessClockChanged?.Invoke(config);
+    }
 
+    /// <summary>
+    /// Crash recovery. No capture happens here and none can: this runs in session 0. When no helper
+    /// is connected the service emits nothing at all, and the period simply has no data.
+    /// </summary>
     public async Task TickAsync(CancellationToken cancellationToken = default)
     {
-        var full = DateTimeOffset.UtcNow - _lastIntegrityFullScan > TimeSpan.FromHours(1);
-        var report = _vault.Verify(fullScan: full);
-        if (full)
+        if (!_recovered)
         {
-            _lastIntegrityFullScan = DateTimeOffset.UtcNow;
-        }
-
-        if (!report.Ok)
-        {
-            await EnqueueVaultAlertAsync(report, cancellationToken).ConfigureAwait(false);
-        }
-
-        // Capture stays in-process until a SessionHelper connects (then PreferSessionHelper=true).
-        if (_preferSessionHelper)
-        {
-            return;
-        }
-
-        if (_config.TimeTrackEnabled)
-        {
-            await TickTimeTrackAsync(cancellationToken).ConfigureAwait(false);
-        }
-
-        if (_config.ScreenshotEnabled &&
-            DateTimeOffset.UtcNow - _lastScreenshotAt >= TimeSpan.FromSeconds(Math.Max(30, _config.ScreenshotPeriodSeconds)))
-        {
-            await TickScreenshotAsync(cancellationToken).ConfigureAwait(false);
-            _lastScreenshotAt = DateTimeOffset.UtcNow;
-        }
-
-        if (_config.BrowserHistoryEnabled)
-        {
-            await TickChromeAsync(cancellationToken).ConfigureAwait(false);
+            // Re-deliver any record committed to the vault but not confirmed enqueued before a crash,
+            // so nothing buffered is ever dropped (§13.1).
+            await RecoverUnenqueuedAsync(cancellationToken).ConfigureAwait(false);
+            _recovered = true;
         }
     }
+
+    private static readonly HashSet<string> HelperEventTypes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        AgentEventTypes.TimeTrack,
+        AgentEventTypes.ScreenshotMeta,
+        AgentEventTypes.BrowserHistory
+    };
 
     /// <summary>Persist a capture payload received from the interactive SessionHelper.</summary>
     public Task PersistFromHelperAsync(
@@ -125,69 +176,32 @@ public sealed class TrackingCoordinator
         CancellationToken ct = default)
     {
         NoteSessionHelperAlive();
-        _lastSuccessfulCaptureAt = DateTimeOffset.UtcNow;
+
+        if (!HelperEventTypes.Contains(eventType))
+        {
+            throw new ArgumentException($"Unknown helper event type: {eventType}", nameof(eventType));
+        }
+
+        if (string.Equals(eventType, AgentEventTypes.ScreenshotMeta, StringComparison.OrdinalIgnoreCase)
+            && !_config.ScreenshotEnabled)
+        {
+            return Task.CompletedTask;
+        }
+
+        if (string.Equals(eventType, AgentEventTypes.TimeTrack, StringComparison.OrdinalIgnoreCase)
+            && !_config.TimeTrackEnabled)
+        {
+            return Task.CompletedTask;
+        }
+
+        if (string.Equals(eventType, AgentEventTypes.BrowserHistory, StringComparison.OrdinalIgnoreCase)
+            && !_config.BrowserHistoryEnabled)
+        {
+            return Task.CompletedTask;
+        }
+
+        _lastSuccessfulCaptureAt = _now();
         return PersistAndEnqueueAsync(eventType, vaultKind, plain, occurredUtc, ct);
-    }
-
-    private async Task TickTimeTrackAsync(CancellationToken ct)
-    {
-        var sample = _timeTrack.Poll();
-        if (DateTimeOffset.UtcNow - _lastTimeTrackFlush < TimeSpan.FromSeconds(60))
-        {
-            return;
-        }
-
-        var endedUtc = DateTimeOffset.UtcNow;
-        var startedUtc = _lastTimeTrackFlush;
-        var segment = _timeTrack.CloseSegment(endedUtc);
-        _lastTimeTrackFlush = endedUtc;
-
-        var startedBiz = _businessClock.At(startedUtc);
-        var endedBiz = _businessClock.At(endedUtc);
-        var payload = JsonSerializer.SerializeToUtf8Bytes(new
-        {
-            sample.State,
-            sample.IdleSeconds,
-            startedAtUtc = startedUtc,
-            endedAtUtc = endedUtc,
-            startedAtBusiness = startedBiz.BusinessLocalIso,
-            endedAtBusiness = endedBiz.BusinessLocalIso,
-            durationSeconds = segment.DurationSeconds,
-            businessTimeZoneId = endedBiz.TimeZoneId,
-            businessClockVersion = endedBiz.ClockVersion,
-            businessSynchronized = endedBiz.Synchronized,
-            algorithm = "last_input_hysteresis_v1"
-        });
-        await PersistAndEnqueueAsync(AgentEventTypes.TimeTrack, "timetrack", payload, endedUtc, ct).ConfigureAwait(false);
-        _lastSuccessfulCaptureAt = DateTimeOffset.UtcNow;
-    }
-
-    private async Task TickScreenshotAsync(CancellationToken ct)
-    {
-        var captures = _screenshots.CaptureAllDisplays(_config);
-        if (captures.Count == 0)
-        {
-            return;
-        }
-
-        var payload = _screenshots.SerializeCaptures(captures, _config.ConfigVersion);
-        await PersistAndEnqueueAsync(AgentEventTypes.ScreenshotMeta, "screenshot", payload, DateTimeOffset.UtcNow, ct)
-            .ConfigureAwait(false);
-        _lastSuccessfulCaptureAt = DateTimeOffset.UtcNow;
-    }
-
-    private async Task TickChromeAsync(CancellationToken ct)
-    {
-        var visits = _chrome.PollNewVisits();
-        if (visits.Count == 0)
-        {
-            return;
-        }
-
-        var payload = _chrome.SerializeVisits(visits);
-        await PersistAndEnqueueAsync(AgentEventTypes.BrowserHistory, "browser_history", payload, DateTimeOffset.UtcNow, ct)
-            .ConfigureAwait(false);
-        _lastSuccessfulCaptureAt = DateTimeOffset.UtcNow;
     }
 
     private async Task PersistAndEnqueueAsync(
@@ -197,18 +211,37 @@ public sealed class TrackingCoordinator
         DateTimeOffset occurredUtc,
         CancellationToken ct)
     {
-        var biz = _businessClock.At(occurredUtc);
+        var recordId = Guid.NewGuid();
         var append = _vault.Append(new VaultRecord
         {
+            RecordId = recordId,
             Kind = vaultKind,
             OccurredAt = occurredUtc,
             PlainPayload = plain
         });
 
+        var item = BuildOutboxItem(eventType, recordId, occurredUtc, plain);
+        await _outbox.EnqueueAsync(item, ct).ConfigureAwait(false);
+
+        // Enqueue confirmed. A crash before this line leaves the committed record for
+        // RecoverUnenqueuedAsync to re-deliver on the next start.
+        _vault.MarkEnqueued(append.Sequence);
+    }
+
+    /// <summary>
+    /// Wraps a captured payload in the sync envelope. The vault RecordId becomes the outbox
+    /// ClientEventId so a crash-recovery re-enqueue is deduplicated by the server's
+    /// (UserId, ClientEventId) index instead of double-counting the record.
+    /// </summary>
+    private OutboxItem BuildOutboxItem(
+        string eventType,
+        Guid recordId,
+        DateTimeOffset occurredUtc,
+        byte[] plain)
+    {
+        var biz = _businessClock.At(occurredUtc);
         var envelope = new
         {
-            vaultSequence = append.Sequence,
-            chainHash = append.ChainHashHex,
             configVersion = _config.ConfigVersion,
             occurredAtUtc = occurredUtc,
             businessLocal = biz.BusinessLocalIso,
@@ -218,26 +251,22 @@ public sealed class TrackingCoordinator
             payloadBase64 = Convert.ToBase64String(plain)
         };
 
-        await _outbox.EnqueueAsync(OutboxItem.Create(eventType, envelope, occurredUtc), ct).ConfigureAwait(false);
+        var item = OutboxItem.Create(eventType, envelope, occurredUtc);
+        item.ClientEventId = recordId;
+        return item;
     }
 
-    private Task EnqueueVaultAlertAsync(VaultIntegrityReport report, CancellationToken ct)
+    private async Task RecoverUnenqueuedAsync(CancellationToken ct)
     {
-        var biz = _businessClock.Now();
-        return _outbox.EnqueueAsync(OutboxItem.Create(AgentEventTypes.VaultAlert, new
+        foreach (var record in _vault.ReadUnenqueued())
         {
-            alert = "vault_integrity",
-            report.Ok,
-            report.Error,
-            report.ChainBreak,
-            report.TamperedRecord,
-            report.TipMissing,
-            report.ExpectedNextSequence,
-            report.HighestSequenceFound,
-            report.RecordCount,
-            businessLocal = biz.BusinessLocalIso,
-            businessTimeZoneId = biz.TimeZoneId,
-            businessClockVersion = biz.ClockVersion
-        }), ct);
+            if (VaultKindToEventType.TryGetValue(record.Kind, out var eventType))
+            {
+                var item = BuildOutboxItem(eventType, record.RecordId, record.OccurredAt, record.PlainPayload);
+                await _outbox.EnqueueAsync(item, ct).ConfigureAwait(false);
+            }
+
+            _vault.MarkEnqueued(record.Sequence);
+        }
     }
 }

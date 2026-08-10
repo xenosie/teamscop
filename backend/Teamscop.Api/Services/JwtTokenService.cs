@@ -12,7 +12,8 @@ public interface IJwtTokenService
 {
     /// <summary>
     /// Creates a non-expiring access token. <paramref name="ExpiresInSeconds"/> is always 0
-    /// (no lifetime / never expires).
+    /// (no lifetime / never expires by time). There is no revocation — §3.1 keeps sessions
+    /// alive indefinitely and §3.3 forbids forced logout.
     /// </summary>
     (string Token, long ExpiresInSeconds) CreateAccessToken(UserAccount user);
 }
@@ -36,7 +37,7 @@ public sealed class JwtTokenService(IOptions<JwtOptions> options) : IJwtTokenSer
         var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_options.Key));
         var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
 
-        // No `exp` / `nbf` — sessions do not expire. API validates signature + issuer/audience only.
+        // No `exp` / `nbf` — sessions do not expire by time (§3.1).
         var token = new JwtSecurityToken(
             issuer: _options.Issuer,
             audience: _options.Audience,

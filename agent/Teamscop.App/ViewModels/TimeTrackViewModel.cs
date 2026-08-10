@@ -3,29 +3,29 @@ using System.Globalization;
 using Avalonia.Media;
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
+using Teamscop.App.Composition;
 using Teamscop.App.Services;
-using Teamscop.Engine.Auth;
-using Teamscop.Engine.Lifecycle;
 using Teamscop.Engine.Tracking;
 
 namespace Teamscop.App.ViewModels;
 
-public sealed partial class TimeTrackSegmentViewModel : ObservableObject
+public sealed class TimeTrackSegmentViewModel
 {
-    public TimeTrackSegmentViewModel(TimeTrackSegmentItem item, double totalSeconds)
+    public TimeTrackSegmentViewModel(TimeTrackSegmentItem item, double totalSeconds, CompanyClock clock)
     {
         Kind = NormalizeKind(item.Kind);
         Start = item.Start;
         End = item.End;
         DurationSeconds = Math.Max(0.001, item.DurationSeconds);
         Weight = totalSeconds > 0 ? DurationSeconds / totalSeconds : 0;
-        Brush = Kind switch
-        {
-            "working" => WorkingFill,
-            "rest" => RestFill,
-            _ => Brushes.Transparent
-        };
-        ToolTip = $"{KindLabel}: {FormatSpan(Start)} – {FormatSpan(End)}";
+
+        // §5.4 / §2.5 — working is green; everything else is red. Rest, and time the engine could
+        // not account for because the PC was off, asleep or the agent was not running, are one and
+        // the same "not working" state. The owner asked for "only the bar box, red and green".
+        Fill = Kind == "working" ? WorkingFill : RestFill;
+
+        var range = $"{clock.FormatDateTime(Start)} – {clock.FormatDateTime(End)}";
+        ToolTip = $"{KindLabel}: {range}";
     }
 
     private static readonly IBrush WorkingFill = SolidColorBrush.Parse("#16A34A");
@@ -36,52 +36,35 @@ public sealed partial class TimeTrackSegmentViewModel : ObservableObject
     public DateTimeOffset End { get; }
     public double DurationSeconds { get; }
     public double Weight { get; }
-    public IBrush Brush { get; }
+    public IBrush Fill { get; }
     public string ToolTip { get; }
 
-    public string KindLabel => Kind switch
-    {
-        "working" => "Working",
-        "rest" => "Rest",
-        _ => "No heartbeat"
-    };
+    public string KindLabel => Kind == "working" ? "Working" : "Rest";
 
     private static string NormalizeKind(string? kind)
-    {
-        if (string.Equals(kind, "working", StringComparison.OrdinalIgnoreCase))
-        {
-            return "working";
-        }
-
-        if (string.Equals(kind, "rest", StringComparison.OrdinalIgnoreCase))
-        {
-            return "rest";
-        }
-
-        return "gap";
-    }
-
-    private static string FormatSpan(DateTimeOffset t)
-        => t.UtcDateTime.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture) + " UTC";
+        => string.Equals(kind, "working", StringComparison.OrdinalIgnoreCase) ? "working"
+            : string.Equals(kind, "rest", StringComparison.OrdinalIgnoreCase) ? "rest"
+                : "gap";
 }
 
 public sealed partial class TimeTrackViewModel : ObservableObject
 {
-    private readonly LocalAgentStore _store;
-    private string _apiBaseUrl;
+    private readonly TeamscopApi _api;
+    private readonly SessionStore _session;
+    private readonly CompanyClock _clock;
+    private readonly UiLog _log;
     private Guid? _loadedForStaff;
     private DateTimeOffset? _loadedFromUtc;
     private DateTimeOffset? _loadedToUtc;
     private int _loadGeneration;
 
-    public TimeTrackViewModel(string? apiBaseUrl = null)
+    public TimeTrackViewModel(AppServices services)
     {
-        _store = AppSessionStore.ForActiveSession();
-        _apiBaseUrl = ResolveApiBase(apiBaseUrl);
-        Chain = new ChainHealthViewModel(apiBaseUrl);
+        _api = services.Api;
+        _session = services.Session;
+        _clock = services.Clock;
+        _log = services.Log;
     }
-
-    public ChainHealthViewModel Chain { get; }
 
     public ObservableCollection<TimeTrackSegmentViewModel> Segments { get; } = [];
 
@@ -94,7 +77,11 @@ public sealed partial class TimeTrackViewModel : ObservableObject
     [ObservableProperty] private bool _hasTimeline;
     [ObservableProperty] private string _workingSummary = "";
     [ObservableProperty] private string _restSummary = "";
-    [ObservableProperty] private string _gapSummary = "";
+
+    /// <summary>§2.5 — fraction 0..1 of the bar where "now" sits, drawn only when <see cref="HasNowMarker"/>.</summary>
+    [ObservableProperty] private double _nowFraction;
+    [ObservableProperty] private bool _hasNowMarker;
+    [ObservableProperty] private string _nowLabel = "";
 
     public bool ShowEmpty => !IsLoading && !HasTimeline && string.IsNullOrWhiteSpace(ErrorMessage);
     public bool ShowError => !IsLoading && !string.IsNullOrWhiteSpace(ErrorMessage);
@@ -117,7 +104,6 @@ public sealed partial class TimeTrackViewModel : ObservableObject
     public void Reset()
     {
         Interlocked.Increment(ref _loadGeneration);
-        Chain.Reset();
         _loadedForStaff = null;
         _loadedFromUtc = null;
         _loadedToUtc = null;
@@ -130,7 +116,7 @@ public sealed partial class TimeTrackViewModel : ObservableObject
         PeriodCaption = "";
         WorkingSummary = "";
         RestSummary = "";
-        GapSummary = "";
+        ClearNowMarker();
     }
 
     public async Task LoadAsync(
@@ -139,9 +125,9 @@ public sealed partial class TimeTrackViewModel : ObservableObject
         DateTimeOffset? fromUtc,
         DateTimeOffset? toUtc,
         DateTime? businessStart,
-        DateTime? businessEnd)
+        DateTime? businessEnd,
+        CancellationToken ct = default)
     {
-        _ = Chain.LoadAsync(staffUserId);
         if (!force
             && _loadedForStaff == staffUserId
             && _loadedFromUtc == fromUtc
@@ -152,16 +138,13 @@ public sealed partial class TimeTrackViewModel : ObservableObject
         }
 
         var generation = Interlocked.Increment(ref _loadGeneration);
-        var state = _store.Load();
-        if (string.IsNullOrWhiteSpace(state.AccessToken))
+        if (!_session.HasToken)
         {
             await Dispatcher.UIThread.InvokeAsync(() =>
             {
                 if (generation != _loadGeneration) return;
-                Segments.Clear();
-                HasTimeline = false;
+                Clear();
                 ErrorMessage = "Sign in required.";
-                EmptyMessage = null;
                 IsLoading = false;
             });
             return;
@@ -172,16 +155,9 @@ public sealed partial class TimeTrackViewModel : ObservableObject
             await Dispatcher.UIThread.InvokeAsync(() =>
             {
                 if (generation != _loadGeneration) return;
-                Segments.Clear();
-                HasTimeline = false;
-                ErrorMessage = null;
+                Clear();
                 EmptyMessage = "Select a period in the calendar to view the time track timeline.";
-                LeftLabel = "";
-                RightLabel = "";
                 PeriodCaption = "All time";
-                WorkingSummary = "";
-                RestSummary = "";
-                GapSummary = "";
                 IsLoading = false;
                 _loadedForStaff = staffUserId;
                 _loadedFromUtc = null;
@@ -190,7 +166,6 @@ public sealed partial class TimeTrackViewModel : ObservableObject
             return;
         }
 
-        _apiBaseUrl = ResolveApiBase(state.ApiBaseUrl);
         await Dispatcher.UIThread.InvokeAsync(() =>
         {
             IsLoading = true;
@@ -200,9 +175,8 @@ public sealed partial class TimeTrackViewModel : ObservableObject
 
         try
         {
-            using var api = new TrackingApiClient(_apiBaseUrl);
-            var timeline = await api.QueryTimeTrackTimelineAsync(
-                    state.AccessToken, staffUserId, fromUtc.Value, toUtc.Value)
+            var timeline = await _api.QueryTimeTrackTimelineAsync(
+                    staffUserId, fromUtc.Value, toUtc.Value, ct)
                 .ConfigureAwait(false);
 
             await Dispatcher.UIThread.InvokeAsync(() =>
@@ -215,15 +189,24 @@ public sealed partial class TimeTrackViewModel : ObservableObject
                 IsLoading = false;
             });
         }
-        catch (Exception ex)
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
+            // Cancelled by a newer selection or by leaving the route. Hand the section back rather
+            // than leaving the spinner up: a newer load owns the flag once the generation moves.
             await Dispatcher.UIThread.InvokeAsync(() =>
             {
                 if (generation != _loadGeneration) return;
-                Segments.Clear();
-                HasTimeline = false;
-                ErrorMessage = FormatError(ex);
-                EmptyMessage = null;
+                IsLoading = false;
+            });
+        }
+        catch (Exception ex)
+        {
+            _log.Warn($"Time track for {staffUserId:D} could not be loaded", ex);
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                if (generation != _loadGeneration) return;
+                Clear();
+                ErrorMessage = ApiError.Describe(ex, "Failed to load time track.");
                 IsLoading = false;
                 _loadedForStaff = staffUserId;
                 _loadedFromUtc = fromUtc;
@@ -232,16 +215,40 @@ public sealed partial class TimeTrackViewModel : ObservableObject
         }
     }
 
-    private void ApplyTimeline(TimeTrackTimeline timeline, DateTime businessStart, DateTime businessEnd)
+    private void Clear()
     {
         Segments.Clear();
+        HasTimeline = false;
+        ErrorMessage = null;
+        EmptyMessage = null;
+        LeftLabel = "";
+        RightLabel = "";
+        WorkingSummary = "";
+        RestSummary = "";
+        ClearNowMarker();
+    }
+
+    private void ClearNowMarker()
+    {
+        HasNowMarker = false;
+        NowFraction = 0;
+        NowLabel = "";
+    }
+
+    private void ApplyTimeline(
+        TimeTrackTimeline timeline,
+        DateTime businessStart,
+        DateTime businessEnd)
+    {
+        Segments.Clear();
+
         var total = timeline.TotalSeconds > 0
             ? timeline.TotalSeconds
             : Math.Max(0.001, (timeline.To - timeline.From).TotalSeconds);
 
         foreach (var seg in timeline.Segments)
         {
-            Segments.Add(new TimeTrackSegmentViewModel(seg, total));
+            Segments.Add(new TimeTrackSegmentViewModel(seg, total, _clock));
         }
 
         HasTimeline = Segments.Count > 0;
@@ -251,17 +258,39 @@ public sealed partial class TimeTrackViewModel : ObservableObject
             ? businessStart.ToString("dd MMM yyyy", CultureInfo.InvariantCulture)
             : $"{businessStart:dd MMM yyyy} – {businessEnd:dd MMM yyyy}";
 
-        var working = Segments.Where(s => s.Kind == "working").Sum(s => s.DurationSeconds);
-        var rest = Segments.Where(s => s.Kind == "rest").Sum(s => s.DurationSeconds);
-        var gap = Segments.Where(s => s.Kind == "gap").Sum(s => s.DurationSeconds);
-        WorkingSummary = FormatDuration(working);
-        RestSummary = FormatDuration(rest);
-        GapSummary = FormatDuration(gap);
+        WorkingSummary = CompanyClock.FormatDuration(
+            Segments.Where(s => s.Kind == "working").Sum(s => s.DurationSeconds));
+        // §5.4 — rest is everything that is not working, including time the engine could not account for.
+        RestSummary = CompanyClock.FormatDuration(
+            Segments.Where(s => s.Kind != "working").Sum(s => s.DurationSeconds));
+
+        // §2.5 — the bar span IS the server's period bounds; place "now" against those same instants.
+        ApplyNowMarker(timeline.From, timeline.To);
 
         if (!HasTimeline)
         {
             EmptyMessage = "No time track data in this period.";
         }
+    }
+
+    /// <summary>
+    /// §2.5 — where "now" sits on the bar, in the SAME UTC frame the server derived the period from
+    /// (<c>timeline.From/To</c>). The fraction math is frame-independent, so it needs no company-local
+    /// conversion; only the label is company time (§2.4). Absent for a period that does not contain now.
+    /// </summary>
+    private void ApplyNowMarker(DateTimeOffset from, DateTimeOffset to)
+    {
+        var span = (to - from).TotalSeconds;
+        var nowUtc = DateTimeOffset.UtcNow;
+        if (span <= 0 || nowUtc < from || nowUtc >= to)
+        {
+            ClearNowMarker();
+            return;
+        }
+
+        NowFraction = Math.Clamp((nowUtc - from).TotalSeconds / span, 0, 1);
+        NowLabel = $"Now {_clock.FormatTime(nowUtc)}";
+        HasNowMarker = true;
     }
 
     private static string FormatBusinessEnd(DateTime localDayOrNextMidnight, bool isEnd)
@@ -275,41 +304,4 @@ public sealed partial class TimeTrackViewModel : ObservableObject
 
         return localDayOrNextMidnight.Date.ToString("dd MMM yyyy", CultureInfo.InvariantCulture) + " 00:00";
     }
-
-    private static string FormatDuration(double seconds)
-    {
-        if (seconds < 1)
-        {
-            return "0m";
-        }
-
-        var ts = TimeSpan.FromSeconds(seconds);
-        if (ts.TotalHours >= 1)
-        {
-            return $"{(int)ts.TotalHours}h {ts.Minutes}m";
-        }
-
-        return $"{Math.Max(1, (int)Math.Round(ts.TotalMinutes))}m";
-    }
-
-    private static string FormatError(Exception ex)
-    {
-        if (ex is HttpRequestException)
-        {
-            return "Could not reach the server.";
-        }
-
-        var msg = ex.Message;
-        if (msg.Contains("403", StringComparison.Ordinal) || msg.Contains("timetrack", StringComparison.OrdinalIgnoreCase))
-        {
-            return string.IsNullOrWhiteSpace(msg) ? "Not allowed to view timetrack." : msg;
-        }
-
-        return string.IsNullOrWhiteSpace(msg) ? "Failed to load time track." : msg;
-    }
-
-    private static string ResolveApiBase(string? apiBaseUrl)
-        => string.IsNullOrWhiteSpace(apiBaseUrl)
-            ? Environment.GetEnvironmentVariable("TEAMSCOP_API_BASE") ?? "https://teamscop.com"
-            : apiBaseUrl.TrimEnd('/');
 }

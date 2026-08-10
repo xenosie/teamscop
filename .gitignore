@@ -12,3 +12,7 @@ appsettings.*.local.json
 # local UI preview artifacts
 /avalonia-smoke*.png
 /tmp/teamscop-ui-preview/
+
+# Setup embedded payload (generated)
+agent/Teamscop.Setup/payload.zip
+artifacts/

@@ -15,7 +15,7 @@ public sealed class Argon2PasswordHasher : IPasswordHasher
     private const int SaltSize = 16;
     private const int HashSize = 32;
     private const int DegreeOfParallelism = 2;
-    private const int MemorySizeKb = 64 * 1024;
+    private const int MemorySizeKb = 32 * 1024;
     private const int Iterations = 3;
 
     public string Hash(string password)

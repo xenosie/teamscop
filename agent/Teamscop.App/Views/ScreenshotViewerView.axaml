@@ -1,0 +1,114 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:Teamscop.App.ViewModels"
+             x:Class="Teamscop.App.Views.ScreenshotViewerView"
+             x:DataType="vm:ScreenshotViewerViewModel"
+             Focusable="True"
+             Background="#0F172A">
+
+  <!-- Full-screen viewer (§3.4): a fixed dark viewport; zoom scales the image inside a ScrollViewer
+       that pans by drag and zooms by wheel; the keyboard drives next/prev, zoom and close. -->
+  <DockPanel>
+    <Border DockPanel.Dock="Top"
+            Background="{StaticResource TsSurfaceBrush}"
+            BorderBrush="{StaticResource TsBorderBrush}"
+            BorderThickness="0,0,0,1"
+            Padding="14,8">
+      <Grid ColumnDefinitions="*,Auto,Auto">
+        <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+          <TextBlock Text="{Binding Title}"
+                     FontWeight="SemiBold"
+                     FontSize="14"
+                     VerticalAlignment="Center"
+                     Foreground="{StaticResource TsTextBrush}" />
+          <TextBlock Text="{Binding PositionLabel}"
+                     VerticalAlignment="Center"
+                     Foreground="{StaticResource TsTextMutedBrush}" />
+          <StackPanel Orientation="Horizontal" Spacing="6" Margin="8,0,0,0"
+                      IsVisible="{Binding ShowDisplayPicker}"
+                      VerticalAlignment="Center">
+            <TextBlock Text="Display" VerticalAlignment="Center"
+                       Foreground="{StaticResource TsTextMutedBrush}" />
+            <!-- SelectedItem bound to a nullable int on purpose. RebuildDisplayOptions clears the
+                 collection on every navigation, which clears the selection, and Avalonia writes that
+                 null straight back through the binding. Against a non-nullable int that surfaced as
+                 "Could not convert 'Null' (null) to System.Int32" across the top of the viewer every
+                 time the image changed. The view model coerces null back to the current display. -->
+            <ComboBox ItemsSource="{Binding DisplayOptions}"
+                      SelectedItem="{Binding SelectedDisplay}"
+                      MinWidth="64" Height="32" />
+          </StackPanel>
+        </StackPanel>
+
+        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8"
+                    VerticalAlignment="Center" Margin="12,0">
+          <Button Classes="ts-toolbar" Content="Previous" Height="34" MinWidth="88"
+                  Command="{Binding PrevCommand}"
+                  IsEnabled="{Binding CanGoPrev}"
+                  ToolTip.Tip="Previous (←)" />
+          <Button Classes="ts-toolbar" Content="Next" Height="34" MinWidth="88"
+                  Command="{Binding NextCommand}"
+                  IsEnabled="{Binding CanGoNext}"
+                  ToolTip.Tip="Next (→)" />
+          <Button Classes="ts-toolbar" Content="−" Width="40" Height="34" Padding="0"
+                  FontSize="20" FontWeight="SemiBold"
+                  Command="{Binding ZoomOutCommand}"
+                  ToolTip.Tip="Zoom out (−)" />
+          <Button Classes="ts-toolbar" Content="{Binding ZoomLabel}" MinWidth="72" Height="34"
+                  Command="{Binding FitCommand}"
+                  ToolTip.Tip="Fit to view (F)" />
+          <Button Classes="ts-toolbar" Content="+" Width="40" Height="34" Padding="0"
+                  FontSize="20" FontWeight="SemiBold"
+                  Command="{Binding ZoomInCommand}"
+                  ToolTip.Tip="Zoom in (+)" />
+        </StackPanel>
+
+        <Button Grid.Column="2" Classes="ts-primary" Content="Back" Height="34" MinWidth="88"
+                HorizontalAlignment="Right"
+                Command="{Binding CloseCommand}"
+                ToolTip.Tip="Close (Esc)" />
+      </Grid>
+    </Border>
+
+    <Panel>
+      <TextBlock Text="{Binding ErrorMessage}"
+                 IsVisible="{Binding ShowError}"
+                 Foreground="#F87171"
+                 HorizontalAlignment="Center"
+                 VerticalAlignment="Center"
+                 TextWrapping="Wrap"
+                 Margin="16" />
+      <TextBlock Text="Loading…"
+                 IsVisible="{Binding IsLoading}"
+                 Foreground="{StaticResource TsTextMutedBrush}"
+                 HorizontalAlignment="Center"
+                 VerticalAlignment="Center" />
+
+      <ScrollViewer Name="ImageScroll"
+                    HorizontalScrollBarVisibility="Auto"
+                    VerticalScrollBarVisibility="Auto"
+                    IsVisible="{Binding HasImage}"
+                    Padding="0"
+                    Background="#0F172A"
+                    SizeChanged="OnViewportSizeChanged">
+        <Image Name="ViewImage"
+               Source="{Binding Image}"
+               Stretch="Uniform"
+               HorizontalAlignment="Center"
+               VerticalAlignment="Center" />
+      </ScrollViewer>
+
+      <Border VerticalAlignment="Bottom"
+              HorizontalAlignment="Center"
+              Margin="0,0,0,14"
+              Background="#B00F172A"
+              CornerRadius="6"
+              Padding="12,5"
+              IsHitTestVisible="False">
+        <TextBlock Text="← → next/prev · Home/End first/last · +/− or wheel zoom · F fit · drag to pan · Esc close"
+                   FontSize="11"
+                   Foreground="#CBD5E1" />
+      </Border>
+    </Panel>
+  </DockPanel>
+</UserControl>

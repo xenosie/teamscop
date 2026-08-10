@@ -1,12 +1,10 @@
 using System.Collections.ObjectModel;
-using System.Globalization;
 using Avalonia.Media.Imaging;
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Teamscop.App.Composition;
 using Teamscop.App.Services;
-using Teamscop.Engine.Auth;
-using Teamscop.Engine.Lifecycle;
 using Teamscop.Engine.Tracking;
 
 namespace Teamscop.App.ViewModels;
@@ -20,10 +18,12 @@ public sealed partial class ScreenshotViewerViewModel : ObservableObject
     private static readonly double[] ZoomSteps =
         [0.25, 0.35, 0.5, 0.67, 0.75, 1.0, 1.25, 1.5, 2.0, 2.5, 3.0, 4.0];
 
-    private readonly LocalAgentStore _store;
+    private readonly TeamscopApi _api;
+    private readonly SessionStore _session;
+    private readonly CompanyClock _clock;
+    private readonly UiLog _log;
     private readonly BitmapLruCache _fullCache = new(4);
     private readonly List<ScreenshotMetaItem> _items;
-    private string _apiBaseUrl;
     private int _loadGeneration;
     private bool _fitMode = true;
 
@@ -33,16 +33,18 @@ public sealed partial class ScreenshotViewerViewModel : ObservableObject
     public event Action? ViewChanged;
 
     public ScreenshotViewerViewModel(
+        AppServices services,
         IReadOnlyList<ScreenshotMetaItem> items,
-        int startIndex,
-        string? apiBaseUrl = null)
+        int startIndex)
     {
-        _store = AppSessionStore.ForActiveSession();
-        _apiBaseUrl = ResolveApiBase(apiBaseUrl);
+        _api = services.Api;
+        _session = services.Session;
+        _clock = services.Clock;
+        _log = services.Log;
         _items = items.ToList();
         CurrentIndex = Math.Clamp(startIndex, 0, Math.Max(0, _items.Count - 1));
         RebuildDisplayOptions();
-        _ = LoadCurrentAsync(prefetchNeighbor: true);
+        LoadCurrentAsync(prefetchNeighbor: true).FireAndForget(_log, "Screenshot viewer");
     }
 
     public ObservableCollection<int> DisplayOptions { get; } = [];
@@ -58,6 +60,26 @@ public sealed partial class ScreenshotViewerViewModel : ObservableObject
     [ObservableProperty] private bool _canGoPrev;
     [ObservableProperty] private bool _canGoNext;
     [ObservableProperty] private bool _showDisplayPicker;
+
+    /// <summary>
+    /// What the ComboBox binds to. Nullable because a ComboBox whose items were just replaced has no
+    /// selection and pushes null back through the binding — clearing DisplayOptions on every
+    /// navigation made that happen constantly. Swallowing the null here, rather than letting it hit
+    /// the int, is what stops the cast error; a real selection still flows through.
+    /// </summary>
+    public int? SelectedDisplay
+    {
+        get => SelectedDisplayIndex;
+        set
+        {
+            if (value is { } display)
+            {
+                SelectedDisplayIndex = display;
+            }
+
+            OnPropertyChanged();
+        }
+    }
 
     public bool HasImage => Image is not null && !IsLoading;
     public bool ShowError => !IsLoading && !string.IsNullOrWhiteSpace(ErrorMessage);
@@ -85,11 +107,15 @@ public sealed partial class ScreenshotViewerViewModel : ObservableObject
         OnPropertyChanged(nameof(PositionLabel));
         UpdateNavFlags();
         RebuildDisplayOptions();
-        _ = LoadCurrentAsync(prefetchNeighbor: true);
+        LoadCurrentAsync(prefetchNeighbor: true).FireAndForget(_log, "Screenshot viewer");
     }
 
     partial void OnSelectedDisplayIndexChanged(int value)
-        => _ = LoadCurrentAsync(prefetchNeighbor: false);
+    {
+        // Keep the ComboBox in step after a rebuild reset its selection to null.
+        OnPropertyChanged(nameof(SelectedDisplay));
+        LoadCurrentAsync(prefetchNeighbor: false).FireAndForget(_log, "Screenshot viewer");
+    }
 
     [RelayCommand]
     private void Close() => CloseRequested?.Invoke();
@@ -109,6 +135,24 @@ public sealed partial class ScreenshotViewerViewModel : ObservableObject
         if (CurrentIndex < _items.Count - 1)
         {
             CurrentIndex++;
+        }
+    }
+
+    [RelayCommand]
+    private void First()
+    {
+        if (_items.Count > 0 && CurrentIndex != 0)
+        {
+            CurrentIndex = 0;
+        }
+    }
+
+    [RelayCommand]
+    private void Last()
+    {
+        if (_items.Count > 0 && CurrentIndex != _items.Count - 1)
+        {
+            CurrentIndex = _items.Count - 1;
         }
     }
 
@@ -217,7 +261,7 @@ public sealed partial class ScreenshotViewerViewModel : ObservableObject
             SelectedDisplayIndex = indexes[0];
         }
 
-        Title = FormatTitle(meta);
+        Title = ScreenshotTime.Format(meta, _clock);
     }
 
     private async Task LoadCurrentAsync(bool prefetchNeighbor)
@@ -235,7 +279,7 @@ public sealed partial class ScreenshotViewerViewModel : ObservableObject
         var key = FullKey(meta.Id, display);
 
         UpdateNavFlags();
-        Title = FormatTitle(meta);
+        Title = ScreenshotTime.Format(meta, _clock);
 
         if (_fullCache.TryGet(key, out var cached) && cached is not null)
         {
@@ -255,17 +299,14 @@ public sealed partial class ScreenshotViewerViewModel : ObservableObject
 
         try
         {
-            var state = _store.Load();
-            if (string.IsNullOrWhiteSpace(state.AccessToken))
+            if (!_session.HasToken)
             {
                 ErrorMessage = "Sign in required.";
                 IsLoading = false;
                 return;
             }
 
-            _apiBaseUrl = ResolveApiBase(state.ApiBaseUrl);
-            using var api = new TrackingApiClient(_apiBaseUrl);
-            var bytes = await api.GetScreenshotImageAsync(state.AccessToken, meta.Id, display)
+            var bytes = await _api.GetScreenshotImageAsync(meta.Id, display, CancellationToken.None)
                 .ConfigureAwait(false);
 
             if (generation != _loadGeneration)
@@ -300,9 +341,7 @@ public sealed partial class ScreenshotViewerViewModel : ObservableObject
                 if (generation != _loadGeneration) return;
                 Image = null;
                 IsLoading = false;
-                ErrorMessage = ex is HttpRequestException
-                    ? "Could not reach the server."
-                    : (string.IsNullOrWhiteSpace(ex.Message) ? "Failed to load image." : ex.Message);
+                ErrorMessage = ApiError.Describe(ex, "Failed to load image.");
             });
         }
     }
@@ -328,23 +367,16 @@ public sealed partial class ScreenshotViewerViewModel : ObservableObject
             return;
         }
 
-        _ = Task.Run(async () =>
+        Task.Run(async () =>
         {
             try
             {
-                if (generation != _loadGeneration)
+                if (generation != _loadGeneration || !_session.HasToken)
                 {
                     return;
                 }
 
-                var state = _store.Load();
-                if (string.IsNullOrWhiteSpace(state.AccessToken))
-                {
-                    return;
-                }
-
-                using var api = new TrackingApiClient(ResolveApiBase(state.ApiBaseUrl));
-                var bytes = await api.GetScreenshotImageAsync(state.AccessToken, meta.Id, display)
+                var bytes = await _api.GetScreenshotImageAsync(meta.Id, display, CancellationToken.None)
                     .ConfigureAwait(false);
                 if (generation != _loadGeneration)
                 {
@@ -355,27 +387,13 @@ public sealed partial class ScreenshotViewerViewModel : ObservableObject
                 var bitmap = new Bitmap(ms);
                 _fullCache.Set(key, bitmap);
             }
-            catch
+            catch (Exception ex)
             {
-                // Prefetch is best-effort.
+                // Prefetch is best-effort — the next/prev click reloads it for real.
+                _log.Debug($"Screenshot prefetch skipped: {ApiError.Describe(ex)}");
             }
-        });
+        }).FireAndForget(_log, "Screenshot prefetch");
     }
 
     private static string FullKey(Guid id, int display) => $"{id:D}:{display}:full";
-
-    private static string FormatTitle(ScreenshotMetaItem meta)
-    {
-        if (meta.BusinessOccurredAt is { } biz)
-        {
-            return biz.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture);
-        }
-
-        return meta.OccurredAt.UtcDateTime.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture) + " UTC";
-    }
-
-    private static string ResolveApiBase(string? apiBaseUrl)
-        => string.IsNullOrWhiteSpace(apiBaseUrl)
-            ? Environment.GetEnvironmentVariable("TEAMSCOP_API_BASE") ?? "https://teamscop.com"
-            : apiBaseUrl.TrimEnd('/');
 }

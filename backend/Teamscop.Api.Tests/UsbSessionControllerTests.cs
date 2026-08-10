@@ -4,6 +4,13 @@ namespace Teamscop.Api.Tests;
 
 public class UsbSessionControllerTests
 {
+    /// <summary>
+    /// Generous on purpose. These assert an eventual state transition, and the wait is not the
+    /// assertion — the Assert after it is. A tight bound only makes the test fail on a loaded
+    /// machine, which is exactly what happened once the suite grew past 80 tests.
+    /// </summary>
+    private static readonly TimeSpan WaitTimeout = TimeSpan.FromSeconds(30);
+
     [Fact]
     public async Task Insert_Blocks_Approve_Unlocks_Remove_Reblocks()
     {
@@ -26,14 +33,14 @@ public class UsbSessionControllerTests
         var device = new UsbStorageDevice("REMOVABLE\\E:", "TestStick", "E:", DateTimeOffset.UtcNow);
         watcher.SimulateArrival(device);
 
-        await WaitUntilAsync(() => controller.State == UsbSessionState.SessionAllowed, TimeSpan.FromSeconds(3));
+        await WaitUntilAsync(() => controller.State == UsbSessionState.SessionAllowed, WaitTimeout);
         Assert.Equal(UsbSessionState.SessionAllowed, controller.State);
         Assert.False(policy.IsBlocked);
         Assert.Equal(device.InstanceId, controller.SessionInstanceId);
         Assert.Equal(1, verifier.Calls);
 
         watcher.SimulateRemoval(device.InstanceId);
-        await WaitUntilAsync(() => controller.State == UsbSessionState.Idle, TimeSpan.FromSeconds(3));
+        await WaitUntilAsync(() => controller.State == UsbSessionState.Idle, WaitTimeout);
         Assert.True(policy.IsBlocked);
         Assert.Null(controller.SessionInstanceId);
     }

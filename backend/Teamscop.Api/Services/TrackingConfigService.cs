@@ -1,8 +1,10 @@
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
+using Teamscop.Api.Audit;
 using Teamscop.Api.Data;
 using Teamscop.Api.Hubs;
 using Teamscop.Engine.Tracking;
+using Teamscop.Api.Errors;
 
 namespace Teamscop.Api.Services;
 
@@ -14,7 +16,9 @@ public interface ITrackingConfigService
 
 public sealed class TrackingConfigService(
     AppDbContext db,
-    IHubContext<ConfigHub> hub) : ITrackingConfigService
+    IHubContext<ConfigHub> hub,
+    IAuditLog audit,
+    ILogger<TrackingConfigService> logger) : ITrackingConfigService
 {
     public async Task<StaffTrackingConfig> GetForStaffAsync(Guid staffUserId, CancellationToken ct)
     {
@@ -22,7 +26,7 @@ public sealed class TrackingConfigService(
         if (entity is null)
         {
             var user = await db.Users.FirstOrDefaultAsync(u => u.Id == staffUserId, ct)
-                ?? throw new UnauthorizedAccessException("User not found.");
+                ?? throw new SessionInvalidException("User not found.");
             entity = DefaultEntity(user);
             db.StaffTrackingConfigs.Add(entity);
             await db.SaveChangesAsync(ct);
@@ -38,7 +42,7 @@ public sealed class TrackingConfigService(
         CancellationToken ct)
     {
         var admin = await db.Users.FirstOrDefaultAsync(u => u.Id == adminUserId, ct)
-            ?? throw new UnauthorizedAccessException("Admin not found.");
+            ?? throw new SessionInvalidException("Admin not found.");
         if (admin.Role != UserRole.Admin)
         {
             throw new UnauthorizedAccessException("Only admins can configure staff tracking.");
@@ -73,6 +77,19 @@ public sealed class TrackingConfigService(
         await db.SaveChangesAsync(ct);
 
         var dto = ToDto(entity);
+        audit.Record(AuditActions.TrackingConfigChanged, admin.Id, admin.CompanyId, new
+        {
+            staffUserId,
+            dto.ScreenshotEnabled,
+            dto.ScreenshotPeriodSeconds,
+            dto.ScreenshotQuality,
+            dto.TimeTrackEnabled,
+            dto.BrowserHistoryEnabled,
+            dto.ConfigVersion
+        });
+        logger.LogInformation("Tracking config v{Version} pushed to staff {StaffUserId}",
+            dto.ConfigVersion, staffUserId);
+
         await hub.Clients.Group(ConfigHub.StaffGroup(staffUserId))
             .SendAsync("TrackingConfigUpdated", dto, ct);
         return dto;

@@ -39,14 +39,12 @@ public class AppHistoryFlowTests : IClassFixture<WebApplicationFactory<Program>>
         var (adminToken, companyToken) = await SignupAdminAsync("Uninstall Hist Co");
         var (staffId, _, staffDevice) = await SignupStaffAsync(companyToken, "UnStaff");
 
-        using var enroll = Authed(HttpMethod.Post, "/api/lifecycle/totp/enroll", adminToken);
-        enroll.Content = JsonContent.Create(new { staffUserId = staffId });
-        var enrollResp = await _client.SendAsync(enroll);
-        enrollResp.EnsureSuccessStatusCode();
-        using var enrollDoc = JsonDocument.Parse(await enrollResp.Content.ReadAsStringAsync());
-        var secret = enrollDoc.RootElement.GetProperty("secret").GetString()!;
-
-        using var codeReq = Authed(HttpMethod.Get, $"/api/lifecycle/totp/code/{staffId}", adminToken);
+        // §6.1 — no enrolment; the code is derived on demand from the device key. The admin simply
+        // asks for the current uninstall code and relays it (§10.2).
+        using var codeReq = Authed(
+            HttpMethod.Get,
+            $"/api/lifecycle/totp/code/{staffId}?purpose=uninstall",
+            adminToken);
         var codeResp = await _client.SendAsync(codeReq);
         codeResp.EnsureSuccessStatusCode();
         var code = JsonDocument.Parse(await codeResp.Content.ReadAsStringAsync())
@@ -74,7 +72,6 @@ public class AppHistoryFlowTests : IClassFixture<WebApplicationFactory<Program>>
         using var eventsDoc = JsonDocument.Parse(eventsBody);
         Assert.True(eventsDoc.RootElement.GetArrayLength() >= 1);
         Assert.Equal(AgentEventTypes.Uninstall, eventsDoc.RootElement[0].GetProperty("eventType").GetString());
-        Assert.False(string.IsNullOrWhiteSpace(secret));
     }
 
     private async Task<(string AccessToken, string CompanyToken)> SignupAdminAsync(string name)

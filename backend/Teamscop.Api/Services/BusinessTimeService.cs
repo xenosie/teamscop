@@ -1,101 +1,117 @@
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
+using Teamscop.Api.Audit;
 using Teamscop.Api.Data;
 using Teamscop.Api.Hubs;
-using Teamscop.Engine.Tracking;
+using Teamscop.Api.Errors;
 
 namespace Teamscop.Api.Services;
 
-public sealed class DeclareBusinessTimeRequest
+/// <summary>Admin picks a timezone from a dropdown — that is the entire clock (§8.4).</summary>
+public sealed class SetCompanyTimeZoneRequest
 {
     public string TimeZoneId { get; set; } = "UTC";
-    public int Year { get; set; }
-    public int Month { get; set; }
-    public int Day { get; set; }
-    public int Hour { get; set; }
-    public int Minute { get; set; }
-    public int Second { get; set; }
 }
+
+public sealed record CompanyTimeZoneDto(
+    Guid CompanyId,
+    string TimeZoneId,
+    string DisplayName,
+    TimeSpan CurrentOffset);
+
+public sealed record TimeZoneOptionDto(string Id, string DisplayName, TimeSpan CurrentOffset);
 
 public interface IBusinessTimeService
 {
-    Task<BusinessClockConfig> GetForCompanyAsync(Guid companyId, CancellationToken ct);
-    Task<BusinessClockConfig> GetForUserAsync(Guid userId, CancellationToken ct);
-    Task<BusinessClockConfig> DeclareSyncAsync(Guid adminUserId, DeclareBusinessTimeRequest request, CancellationToken ct);
+    Task<CompanyTimeZoneDto> GetForCompanyAsync(Guid companyId, CancellationToken ct);
+    Task<CompanyTimeZoneDto> GetForUserAsync(Guid userId, CancellationToken ct);
+    Task<CompanyTimeZoneDto> SetTimeZoneAsync(Guid adminUserId, SetCompanyTimeZoneRequest request, CancellationToken ct);
+    IReadOnlyList<TimeZoneOptionDto> ListTimeZones();
 }
 
 public sealed class BusinessTimeService(
     AppDbContext db,
-    IHubContext<ConfigHub> hub) : IBusinessTimeService
+    IHubContext<ConfigHub> hub,
+    IAuditLog audit,
+    ILogger<BusinessTimeService> logger) : IBusinessTimeService
 {
-    public async Task<BusinessClockConfig> GetForCompanyAsync(Guid companyId, CancellationToken ct)
+    public async Task<CompanyTimeZoneDto> GetForCompanyAsync(Guid companyId, CancellationToken ct)
     {
-        var company = await db.Companies.FirstOrDefaultAsync(c => c.Id == companyId, ct)
+        var row = await db.Companies.AsNoTracking()
+            .Where(c => c.Id == companyId)
+            .Select(c => new { c.Id, c.BusinessTimeZoneId })
+            .FirstOrDefaultAsync(ct)
             ?? throw new InvalidOperationException("Company not found.");
-        return ToDto(company);
+        return ToDto(row.Id, row.BusinessTimeZoneId);
     }
 
-    public async Task<BusinessClockConfig> GetForUserAsync(Guid userId, CancellationToken ct)
+    public async Task<CompanyTimeZoneDto> GetForUserAsync(Guid userId, CancellationToken ct)
     {
-        var user = await db.Users.FirstOrDefaultAsync(u => u.Id == userId, ct)
-            ?? throw new UnauthorizedAccessException("User not found.");
-        return await GetForCompanyAsync(user.CompanyId, ct);
+        var row = await db.Users.AsNoTracking()
+            .Where(u => u.Id == userId)
+            .Select(u => new { u.CompanyId, u.Company.BusinessTimeZoneId })
+            .FirstOrDefaultAsync(ct)
+            ?? throw new SessionInvalidException("User not found.");
+        return ToDto(row.CompanyId, row.BusinessTimeZoneId);
     }
 
-    public async Task<BusinessClockConfig> DeclareSyncAsync(
+    public async Task<CompanyTimeZoneDto> SetTimeZoneAsync(
         Guid adminUserId,
-        DeclareBusinessTimeRequest request,
+        SetCompanyTimeZoneRequest request,
         CancellationToken ct)
     {
         var admin = await db.Users.Include(u => u.Company)
             .FirstOrDefaultAsync(u => u.Id == adminUserId, ct)
-            ?? throw new UnauthorizedAccessException("Admin not found.");
+            ?? throw new SessionInvalidException("Admin not found.");
         if (admin.Role != UserRole.Admin)
         {
-            throw new UnauthorizedAccessException("Only admins can declare business time.");
+            throw new UnauthorizedAccessException("Only admins can set the company timezone.");
         }
 
-        ValidateRequest(request);
-        // Ensure timezone is resolvable (throws/falls back inside ResolveTimeZone).
-        _ = BusinessClock.ResolveTimeZone(request.TimeZoneId);
-
-        var company = admin.Company;
-        var nowUtc = DateTimeOffset.UtcNow;
-        company.BusinessTimeZoneId = request.TimeZoneId.Trim();
-        company.BusinessClockSynchronized = true;
-        company.BusinessAnchorUtc = nowUtc;
-        company.BusinessAnchorYear = request.Year;
-        company.BusinessAnchorMonth = request.Month;
-        company.BusinessAnchorDay = request.Day;
-        company.BusinessAnchorHour = request.Hour;
-        company.BusinessAnchorMinute = request.Minute;
-        company.BusinessAnchorSecond = request.Second;
-        company.BusinessClockVersion += 1;
-        company.BusinessClockUpdatedAt = nowUtc;
-        await db.SaveChangesAsync(ct);
-
-        var dto = ToDto(company);
-        await hub.Clients.Group(ConfigHub.CompanyGroup(company.Id))
-            .SendAsync("BusinessTimeUpdated", dto, ct);
-        return dto;
-    }
-
-    private static void ValidateRequest(DeclareBusinessTimeRequest request)
-    {
         if (string.IsNullOrWhiteSpace(request.TimeZoneId))
         {
             throw new InvalidOperationException("TimeZoneId is required.");
         }
 
-        try
+        var id = request.TimeZoneId.Trim();
+        if (!CompanyBusinessTime.TryResolve(id, out _))
         {
-            _ = new DateTime(request.Year, request.Month, request.Day, request.Hour, request.Minute, request.Second);
+            throw new InvalidOperationException($"Unknown timezone id: {id}");
         }
-        catch (ArgumentOutOfRangeException)
-        {
-            throw new InvalidOperationException("Invalid business date/time components.");
-        }
+
+        var company = admin.Company;
+        var previous = company.BusinessTimeZoneId;
+        company.BusinessTimeZoneId = id;
+        await db.SaveChangesAsync(ct);
+
+        audit.Record(AuditActions.CompanyTimeZoneChanged, admin.Id, company.Id,
+            new { from = previous, to = id });
+        // §8.2: every stored instant is now read through a different clock face.
+        logger.LogInformation("Company {CompanyId} business timezone {From} -> {To}", company.Id, previous, id);
+
+        var dto = ToDto(company.Id, company.BusinessTimeZoneId);
+        await hub.Clients.Group(ConfigHub.CompanyGroup(company.Id))
+            .SendAsync("BusinessTimeUpdated", dto, ct);
+        return dto;
     }
 
-    private static BusinessClockConfig ToDto(Company c) => CompanyBusinessTime.ToConfig(c);
+    public IReadOnlyList<TimeZoneOptionDto> ListTimeZones()
+    {
+        var now = DateTime.UtcNow;
+        return TimeZoneInfo.GetSystemTimeZones()
+            .Select(tz => new TimeZoneOptionDto(tz.Id, tz.DisplayName, tz.GetUtcOffset(now)))
+            .OrderBy(o => o.CurrentOffset)
+            .ThenBy(o => o.Id, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    private static CompanyTimeZoneDto ToDto(Guid companyId, string? timeZoneId)
+    {
+        var zone = CompanyBusinessTime.Resolve(timeZoneId);
+        return new CompanyTimeZoneDto(
+            companyId,
+            string.IsNullOrWhiteSpace(timeZoneId) ? "UTC" : timeZoneId,
+            zone.DisplayName,
+            zone.GetUtcOffset(DateTime.UtcNow));
+    }
 }

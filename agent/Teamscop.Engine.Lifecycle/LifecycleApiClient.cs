@@ -1,3 +1,4 @@
+using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
@@ -19,6 +20,16 @@ public sealed class TotpStatusResult
     public required string StaffUsername { get; init; }
     public required bool Enabled { get; init; }
     public DateTimeOffset? EnrolledAt { get; init; }
+
+    /// <summary>"admin" | "staff". The admin's own row appears only for the admin themselves.</summary>
+    public string? Role { get; init; }
+
+    /// <summary>
+    /// This row is the caller's own machine. It exists so the admin can enrol the PC that carries
+    /// the uninstall guard; it accepts the uninstall purpose only, never USB (§9.4 gates monitored
+    /// machines, not the admin console).
+    /// </summary>
+    public bool IsSelfMachine { get; init; }
 }
 
 public sealed class TotpCodeResult
@@ -28,19 +39,6 @@ public sealed class TotpCodeResult
     public required string Code { get; init; }
     public required int PeriodSeconds { get; init; }
     public required int RemainingSeconds { get; init; }
-}
-
-public sealed class UninstallTicketResult
-{
-    public required string UninstallTicket { get; init; }
-    public required long ExpiresIn { get; init; }
-}
-
-public sealed class UsbApproveResult
-{
-    public required string UsbSessionTicket { get; init; }
-    public required long ExpiresIn { get; init; }
-    public string? DeviceInstanceId { get; init; }
 }
 
 public sealed class LifecycleApiClient : IDisposable
@@ -90,9 +88,16 @@ public sealed class LifecycleApiClient : IDisposable
     public async Task<TotpCodeResult> GetTotpCodeAsync(
         string accessToken,
         Guid staffUserId,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        string? purpose = null)
     {
-        using var req = new HttpRequestMessage(HttpMethod.Get, $"api/lifecycle/totp/code/{staffUserId:D}");
+        var url = $"api/lifecycle/totp/code/{staffUserId:D}";
+        if (!string.IsNullOrWhiteSpace(purpose))
+        {
+            url += "?purpose=" + Uri.EscapeDataString(purpose.Trim());
+        }
+
+        using var req = new HttpRequestMessage(HttpMethod.Get, url);
         req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
         using var resp = await _http.SendAsync(req, ct).ConfigureAwait(false);
         await EnsureSuccess(resp, ct).ConfigureAwait(false);
@@ -100,51 +105,45 @@ public sealed class LifecycleApiClient : IDisposable
                ?? throw new InvalidOperationException("Empty TOTP code response.");
     }
 
-    public async Task<UninstallTicketResult> VerifyUninstallAsync(
-        string deviceKey,
-        string totpCode,
+    public Task HeartbeatAsync(string accessToken, CancellationToken ct = default)
+        => HeartbeatAsync(accessToken, null, ct);
+
+    /// <summary>
+    /// The service's liveness ping, carrying the agent's own verdict on capture and on the files
+    /// under its install directory.
+    ///
+    /// The verdict travels here rather than through the outbox deliberately: the outbox is a FIFO
+    /// queue that can be hundreds of items deep after an outage, so health news would arrive last —
+    /// precisely when it matters most.
+    /// </summary>
+    public async Task HeartbeatAsync(
+        string accessToken,
+        AgentHealthReport? report,
         CancellationToken ct = default)
-    {
-        using var resp = await _http.PostAsJsonAsync(
-            "api/lifecycle/uninstall/verify",
-            new { deviceKey, totpCode },
-            JsonOptions,
-            ct).ConfigureAwait(false);
-        await EnsureSuccess(resp, ct).ConfigureAwait(false);
-        return (await resp.Content.ReadFromJsonAsync<UninstallTicketResult>(JsonOptions, ct).ConfigureAwait(false))
-               ?? throw new InvalidOperationException("Empty uninstall verify response.");
-    }
-
-    public async Task<UsbApproveResult> VerifyUsbAsync(
-        string deviceKey,
-        string totpCode,
-        string? deviceInstanceId = null,
-        CancellationToken ct = default)
-    {
-        using var resp = await _http.PostAsJsonAsync(
-            "api/lifecycle/usb/verify",
-            new { deviceKey, totpCode, deviceInstanceId },
-            JsonOptions,
-            ct).ConfigureAwait(false);
-        await EnsureSuccess(resp, ct).ConfigureAwait(false);
-        return (await resp.Content.ReadFromJsonAsync<UsbApproveResult>(JsonOptions, ct).ConfigureAwait(false))
-               ?? throw new InvalidOperationException("Empty USB verify response.");
-    }
-
-    public async Task ConsumeUsbTicketAsync(string usbSessionTicket, CancellationToken ct = default)
-    {
-        using var resp = await _http.PostAsJsonAsync(
-            "api/lifecycle/usb/consume",
-            new { usbSessionTicket },
-            JsonOptions,
-            ct).ConfigureAwait(false);
-        await EnsureSuccess(resp, ct).ConfigureAwait(false);
-    }
-
-    public async Task HeartbeatAsync(string accessToken, CancellationToken ct = default)
     {
         using var req = new HttpRequestMessage(HttpMethod.Post, "api/lifecycle/heartbeat");
         req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+        if (report is not null)
+        {
+            req.Content = JsonContent.Create(report, options: JsonOptions);
+        }
+
+        using var resp = await _http.SendAsync(req, ct).ConfigureAwait(false);
+        await EnsureSuccess(resp, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// The desktop app's independent report. Its own route so it can never be mistaken for the
+    /// service's liveness — this one runs as the monitored user.
+    /// </summary>
+    public async Task AppReportAsync(
+        string accessToken,
+        AppStatusReport report,
+        CancellationToken ct = default)
+    {
+        using var req = new HttpRequestMessage(HttpMethod.Post, "api/lifecycle/app-report");
+        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+        req.Content = JsonContent.Create(report, options: JsonOptions);
         using var resp = await _http.SendAsync(req, ct).ConfigureAwait(false);
         await EnsureSuccess(resp, ct).ConfigureAwait(false);
     }
@@ -160,3 +159,12 @@ public sealed class LifecycleApiClient : IDisposable
         }
     }
 }
+
+/// <summary>What the service tells the server about its own health, on every heartbeat.</summary>
+public sealed record AgentHealthReport(
+    string? CaptureState,
+    string? CaptureReason,
+    string? MissingComponents);
+
+/// <summary>What the desktop app tells the server about the service and the files on disk.</summary>
+public sealed record AppStatusReport(string? ServiceState, string? MissingComponents);

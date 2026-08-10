@@ -28,20 +28,6 @@ namespace Teamscop.Api.Data.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
-                    b.Property<long?>("BusinessClockVersion")
-                        .HasColumnType("bigint");
-
-                    b.Property<DateTime?>("BusinessOccurredAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("BusinessTimeZoneId")
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)");
-
-                    b.Property<string>("ChainHash")
-                        .HasMaxLength(128)
-                        .HasColumnType("character varying(128)");
-
                     b.Property<Guid>("ClientEventId")
                         .HasColumnType("uuid");
 
@@ -53,6 +39,9 @@ namespace Teamscop.Api.Data.Migrations
                         .HasMaxLength(64)
                         .HasColumnType("character varying(64)");
 
+                    b.Property<int?>("IdleSeconds")
+                        .HasColumnType("integer");
+
                     b.Property<DateTimeOffset>("OccurredAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -63,49 +52,76 @@ namespace Teamscop.Api.Data.Migrations
                     b.Property<DateTimeOffset>("ReceivedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<DateTimeOffset?>("SegmentStartedAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<Guid>("UserId")
                         .HasColumnType("uuid");
 
-                    b.Property<long?>("VaultSequence")
-                        .HasColumnType("bigint");
+                    b.Property<int?>("WorkedSeconds")
+                        .HasColumnType("integer");
 
                     b.HasKey("Id");
 
                     b.HasIndex("EventType");
-
-                    b.HasIndex("CompanyId", "BusinessOccurredAt");
 
                     b.HasIndex("CompanyId", "OccurredAt");
 
                     b.HasIndex("UserId", "ClientEventId")
                         .IsUnique();
 
-                    b.HasIndex("UserId", "VaultSequence");
+                    b.HasIndex("UserId", "OccurredAt");
+
+                    b.HasIndex("UserId", "EventType", "OccurredAt");
 
                     b.ToTable("agent_events", (string)null);
                 });
 
-            modelBuilder.Entity("Teamscop.Api.Data.AgentSequenceState", b =>
+            modelBuilder.Entity("Teamscop.Api.Data.ApiClient", b =>
                 {
-                    b.Property<Guid>("UserId")
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
-                    b.Property<long>("GapCount")
-                        .HasColumnType("bigint");
+                    b.Property<string>("AllowedIps")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
 
-                    b.Property<string>("LastChainHash")
-                        .HasMaxLength(128)
-                        .HasColumnType("character varying(128)");
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uuid");
 
-                    b.Property<long>("LastVaultSequence")
-                        .HasColumnType("bigint");
-
-                    b.Property<DateTimeOffset>("UpdatedAt")
+                    b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
-                    b.HasKey("UserId");
+                    b.Property<bool>("Enabled")
+                        .HasColumnType("boolean");
 
-                    b.ToTable("agent_sequence_states", (string)null);
+                    b.Property<string>("KeyId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<DateTimeOffset?>("LastUsedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("SecretHash")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CompanyId");
+
+                    b.HasIndex("KeyId")
+                        .IsUnique();
+
+                    b.ToTable("api_clients", (string)null);
                 });
 
             modelBuilder.Entity("Teamscop.Api.Data.Company", b =>
@@ -117,40 +133,6 @@ namespace Teamscop.Api.Data.Migrations
                     b.Property<string>("AvatarUrl")
                         .HasMaxLength(500)
                         .HasColumnType("character varying(500)");
-
-                    b.Property<int?>("BusinessAnchorDay")
-                        .HasColumnType("integer");
-
-                    b.Property<int?>("BusinessAnchorHour")
-                        .HasColumnType("integer");
-
-                    b.Property<int?>("BusinessAnchorMinute")
-                        .HasColumnType("integer");
-
-                    b.Property<int?>("BusinessAnchorMonth")
-                        .HasColumnType("integer");
-
-                    b.Property<int?>("BusinessAnchorSecond")
-                        .HasColumnType("integer");
-
-                    b.Property<DateTimeOffset?>("BusinessAnchorUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<int?>("BusinessAnchorYear")
-                        .HasColumnType("integer");
-
-                    b.Property<bool>("BusinessClockSynchronized")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("boolean")
-                        .HasDefaultValue(false);
-
-                    b.Property<DateTimeOffset?>("BusinessClockUpdatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<long>("BusinessClockVersion")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("bigint")
-                        .HasDefaultValue(0L);
 
                     b.Property<string>("BusinessTimeZoneId")
                         .IsRequired()
@@ -174,23 +156,6 @@ namespace Teamscop.Api.Data.Migrations
 
                     b.Property<Guid>("TokenJti")
                         .HasColumnType("uuid");
-
-                    b.Property<int>("TokenVersion")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasDefaultValue(1);
-
-                    b.Property<bool>("UninstallTotpEnabled")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("boolean")
-                        .HasDefaultValue(false);
-
-                    b.Property<DateTimeOffset?>("UninstallTotpEnrolledAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("UninstallTotpSecret")
-                        .HasMaxLength(128)
-                        .HasColumnType("character varying(128)");
 
                     b.HasKey("Id");
 
@@ -396,17 +361,38 @@ namespace Teamscop.Api.Data.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
-                    b.Property<bool>("AccessTotpEnabled")
+                    b.Property<int>("AccessTotpFailedAttempts")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("boolean")
-                        .HasDefaultValue(false);
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0);
 
-                    b.Property<DateTimeOffset?>("AccessTotpEnrolledAt")
+                    b.Property<long>("AccessTotpLastUsedStepUninstall")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasDefaultValue(0L);
+
+                    b.Property<long>("AccessTotpLastUsedStepUsb")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasDefaultValue(0L);
+
+                    b.Property<DateTimeOffset?>("AccessTotpLockoutUntil")
                         .HasColumnType("timestamp with time zone");
 
-                    b.Property<string>("AccessTotpSecret")
-                        .HasMaxLength(128)
-                        .HasColumnType("character varying(128)");
+                    b.Property<string>("AgentStatus")
+                        .HasColumnType("text");
+
+                    b.Property<string>("AgentStatusReason")
+                        .HasColumnType("text");
+
+                    b.Property<DateTimeOffset?>("AgentStatusSince")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset?>("AppDefectSinceAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("AppServiceState")
+                        .HasColumnType("text");
 
                     b.Property<long>("AuthorityVersion")
                         .ValueGeneratedOnAdd()
@@ -433,8 +419,20 @@ namespace Teamscop.Api.Data.Migrations
                         .HasColumnType("boolean")
                         .HasDefaultValue(false);
 
+                    b.Property<DateTimeOffset?>("LastAppReportAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LastCaptureReason")
+                        .HasColumnType("text");
+
+                    b.Property<string>("LastCaptureState")
+                        .HasColumnType("text");
+
                     b.Property<DateTimeOffset?>("LastHeartbeatAt")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LastMissingComponents")
+                        .HasColumnType("text");
 
                     b.Property<bool?>("LastOnline")
                         .HasColumnType("boolean");
@@ -454,6 +452,9 @@ namespace Teamscop.Api.Data.Migrations
                         .IsRequired()
                         .HasMaxLength(20)
                         .HasColumnType("character varying(20)");
+
+                    b.Property<DateTimeOffset?>("UninstalledAt")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("Username")
                         .IsRequired()
@@ -491,15 +492,15 @@ namespace Teamscop.Api.Data.Migrations
                     b.Navigation("User");
                 });
 
-            modelBuilder.Entity("Teamscop.Api.Data.AgentSequenceState", b =>
+            modelBuilder.Entity("Teamscop.Api.Data.ApiClient", b =>
                 {
-                    b.HasOne("Teamscop.Api.Data.UserAccount", "User")
-                        .WithOne()
-                        .HasForeignKey("Teamscop.Api.Data.AgentSequenceState", "UserId")
+                    b.HasOne("Teamscop.Api.Data.Company", "Company")
+                        .WithMany()
+                        .HasForeignKey("CompanyId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
-                    b.Navigation("User");
+                    b.Navigation("Company");
                 });
 
             modelBuilder.Entity("Teamscop.Api.Data.PolicemanAuthorityGrant", b =>

@@ -2,9 +2,9 @@ using System.Collections.ObjectModel;
 using Avalonia.Media.Imaging;
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
-using Teamscop.App.Services;
 using CommunityToolkit.Mvvm.Input;
-using Teamscop.Engine.Auth;
+using Teamscop.App.Composition;
+using Teamscop.App.Services;
 using Teamscop.Engine.Lifecycle;
 
 namespace Teamscop.App.ViewModels;
@@ -56,13 +56,17 @@ public sealed partial class TeamBoxViewModel : ObservableObject
 
 public sealed partial class TeamsBoardViewModel : ObservableObject
 {
-    private readonly LocalAgentStore _store = AppSessionStore.ForActiveSession();
-    private string _apiBaseUrl;
-    private readonly Dictionary<Guid, Bitmap> _avatarCache = new();
+    private readonly TeamscopApi _api;
+    private readonly SessionStore _session;
+    private readonly ImageLoader _images;
+    private readonly UiLog _log;
 
-    public TeamsBoardViewModel(string? apiBaseUrl = null)
+    public TeamsBoardViewModel(AppServices services)
     {
-        _apiBaseUrl = ResolveApiBase(apiBaseUrl);
+        _api = services.Api;
+        _session = services.Session;
+        _images = services.Images;
+        _log = services.Log;
     }
 
     public ObservableCollection<StaffCardViewModel> Pool { get; } = [];
@@ -74,31 +78,33 @@ public sealed partial class TeamsBoardViewModel : ObservableObject
     /// <summary>title, candidates → selected user id or null.</summary>
     public Func<string, IReadOnlyList<StaffCardViewModel>, Task<Guid?>>? RequestPickMember { get; set; }
 
-    public async Task LoadAsync()
+    public async Task LoadAsync(CancellationToken ct = default)
     {
-        var state = _store.Load();
-        if (string.IsNullOrWhiteSpace(state.AccessToken))
+        if (!_session.HasToken)
         {
-            StatusMessage = "Sign in required.";
+            SetStatus("Sign in required.");
             return;
         }
 
-        _apiBaseUrl = ResolveApiBase(state.ApiBaseUrl);
-        IsBusy = true;
-        StatusMessage = null;
+        SetBusy(true);
+        SetStatus(null);
         try
         {
-            using var org = new OrgApiClient(_apiBaseUrl);
-            var structure = await org.GetStructureAsync(state.AccessToken).ConfigureAwait(false);
+            var structure = await _api.GetStructureAsync(ct).ConfigureAwait(false);
             await ApplyStructureAsync(structure).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            // The route was left; the next entry reloads.
         }
         catch (Exception ex)
         {
-            StatusMessage = Truncate(FormatClientError(ex));
+            _log.Warn("Teams board could not load", ex);
+            SetStatus(Truncate(ApiError.Describe(ex)));
         }
         finally
         {
-            await Dispatcher.UIThread.InvokeAsync(() => IsBusy = false);
+            SetBusy(false);
         }
     }
 
@@ -106,10 +112,7 @@ public sealed partial class TeamsBoardViewModel : ObservableObject
     private async Task CreateTeamAsync()
     {
         var n = Teams.Count + 1;
-        await MutateAsync(async (org, token) =>
-        {
-            await org.CreateTeamAsync(token, $"Team {n}").ConfigureAwait(false);
-        });
+        await MutateAsync(ct => _api.CreateTeamAsync($"Team {n}", ct));
     }
 
     [RelayCommand]
@@ -120,10 +123,7 @@ public sealed partial class TeamsBoardViewModel : ObservableObject
             return;
         }
 
-        await MutateAsync(async (org, token) =>
-        {
-            await org.UpdateTeamAsync(token, team.TeamId, name: team.Name.Trim()).ConfigureAwait(false);
-        });
+        await MutateAsync(ct => _api.UpdateTeamAsync(team.TeamId, name: team.Name.Trim(), ct: ct));
     }
 
     [RelayCommand]
@@ -134,10 +134,7 @@ public sealed partial class TeamsBoardViewModel : ObservableObject
             return;
         }
 
-        await MutateAsync(async (org, token) =>
-        {
-            await org.DeleteTeamAsync(token, team.TeamId).ConfigureAwait(false);
-        });
+        await MutateAsync(ct => _api.DeleteTeamAsync(team.TeamId, ct));
     }
 
     [RelayCommand]
@@ -160,10 +157,7 @@ public sealed partial class TeamsBoardViewModel : ObservableObject
             return;
         }
 
-        await MutateAsync(async (org, token) =>
-        {
-            await org.UpdateTeamAsync(token, team.TeamId, leaderUserId: picked.Value).ConfigureAwait(false);
-        });
+        await MutateAsync(ct => _api.UpdateTeamAsync(team.TeamId, leaderUserId: picked.Value, ct: ct));
     }
 
     [RelayCommand]
@@ -194,10 +188,7 @@ public sealed partial class TeamsBoardViewModel : ObservableObject
             return;
         }
 
-        await MutateAsync(async (org, token) =>
-        {
-            await org.UpdateTeamAsync(token, team.TeamId, leaderUserId: picked.Value).ConfigureAwait(false);
-        });
+        await MutateAsync(ct => _api.UpdateTeamAsync(team.TeamId, leaderUserId: picked.Value, ct: ct));
     }
 
     [RelayCommand]
@@ -220,10 +211,7 @@ public sealed partial class TeamsBoardViewModel : ObservableObject
             return;
         }
 
-        await MutateAsync(async (org, token) =>
-        {
-            await org.AddMemberAsync(token, team.TeamId, picked.Value).ConfigureAwait(false);
-        });
+        await MutateAsync(ct => _api.AddTeamMemberAsync(team.TeamId, picked.Value, ct));
     }
 
     [RelayCommand]
@@ -234,56 +222,65 @@ public sealed partial class TeamsBoardViewModel : ObservableObject
             return;
         }
 
-        await MutateAsync(async (org, token) =>
-        {
-            if (person.IsLeader)
-            {
-                await org.UpdateTeamAsync(token, teamId, clearLeader: true).ConfigureAwait(false);
-            }
-            else
-            {
-                await org.RemoveMemberAsync(token, teamId, person.UserId).ConfigureAwait(false);
-            }
-        });
+        await MutateAsync(ct => person.IsLeader
+            ? _api.UpdateTeamAsync(teamId, clearLeader: true, ct: ct)
+            : _api.RemoveTeamMemberAsync(teamId, person.UserId, ct));
     }
 
-    private async Task MutateAsync(Func<OrgApiClient, string, Task> action)
+    private async Task MutateAsync(Func<CancellationToken, Task> action, CancellationToken ct = default)
     {
-        var state = _store.Load();
-        if (string.IsNullOrWhiteSpace(state.AccessToken))
+        if (!_session.HasToken)
         {
-            StatusMessage = "Sign in required.";
+            SetStatus("Sign in required.");
             return;
         }
 
-        _apiBaseUrl = ResolveApiBase(state.ApiBaseUrl);
-        IsBusy = true;
-        StatusMessage = null;
+        SetBusy(true);
+        SetStatus(null);
         try
         {
-            using var org = new OrgApiClient(_apiBaseUrl);
-            await action(org, state.AccessToken).ConfigureAwait(false);
-            var structure = await org.GetStructureAsync(state.AccessToken).ConfigureAwait(false);
+            await action(ct).ConfigureAwait(false);
+            var structure = await _api.GetStructureAsync(ct).ConfigureAwait(false);
             await ApplyStructureAsync(structure).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
-            StatusMessage = Truncate(FormatClientError(ex));
+            _log.Warn("Teams board mutation failed", ex);
+            SetStatus(Truncate(ApiError.Describe(ex)));
             try
             {
-                using var org = new OrgApiClient(_apiBaseUrl);
-                var structure = await org.GetStructureAsync(state.AccessToken).ConfigureAwait(false);
+                // Re-read: the mutation may have half-applied, and the board must show the truth.
+                var structure = await _api.GetStructureAsync(ct).ConfigureAwait(false);
                 await ApplyStructureAsync(structure).ConfigureAwait(false);
             }
-            catch
+            catch (Exception refreshEx)
             {
-                // keep error
+                _log.Warn("Teams board refresh after a failed mutation also failed", refreshEx);
             }
         }
         finally
         {
-            await Dispatcher.UIThread.InvokeAsync(() => IsBusy = false);
+            SetBusy(false);
         }
+    }
+
+    /// <summary>
+    /// Both continuations here run off the UI thread, so a failure used to raise PropertyChanged
+    /// from a thread pool thread — the binding never applied and a broken board looked empty.
+    /// </summary>
+    private void SetStatus(string? message) => OnUi(() => StatusMessage = message);
+
+    private void SetBusy(bool value) => OnUi(() => IsBusy = value);
+
+    private static void OnUi(Action action)
+    {
+        if (Dispatcher.UIThread.CheckAccess())
+        {
+            action();
+            return;
+        }
+
+        Dispatcher.UIThread.Post(action);
     }
 
     private async Task ApplyStructureAsync(OrgStructureDto structure)
@@ -336,91 +333,19 @@ public sealed partial class TeamsBoardViewModel : ObservableObject
 
         foreach (var card in all)
         {
-            _ = LoadAvatarAsync(card);
+            LoadAvatarAsync(card).FireAndForget(_log, "Team member avatar");
         }
     }
 
     private async Task LoadAvatarAsync(StaffCardViewModel card)
     {
-        if (_avatarCache.TryGetValue(card.UserId, out var cached))
-        {
-            await Dispatcher.UIThread.InvokeAsync(() => card.Avatar = cached);
-            return;
-        }
-
-        var absolute = ToAbsoluteUrl(card.AvatarUrl);
-        if (absolute is null)
+        var bitmap = await _images.LoadAsync(card.AvatarUrl).ConfigureAwait(false);
+        if (bitmap is null)
         {
             return;
         }
 
-        try
-        {
-            byte[] bytes;
-            using (var http = new HttpClient { Timeout = TimeSpan.FromSeconds(20) })
-            {
-                bytes = await http.GetByteArrayAsync(absolute).ConfigureAwait(false);
-            }
-
-            await Dispatcher.UIThread.InvokeAsync(() =>
-            {
-                using var ms = new MemoryStream(bytes);
-                var bmp = new Bitmap(ms);
-                _avatarCache[card.UserId] = bmp;
-                card.Avatar = bmp;
-            });
-        }
-        catch
-        {
-            // placeholder
-        }
-    }
-
-    private string? ToAbsoluteUrl(string? url)
-    {
-        if (string.IsNullOrWhiteSpace(url))
-        {
-            return null;
-        }
-
-        if (Uri.TryCreate(url, UriKind.Absolute, out var abs)
-            && (abs.Scheme == Uri.UriSchemeHttp || abs.Scheme == Uri.UriSchemeHttps))
-        {
-            return abs.ToString();
-        }
-
-        return $"{_apiBaseUrl.TrimEnd('/')}/{url.TrimStart('/')}";
-    }
-
-    private static string ResolveApiBase(string? apiBaseUrl)
-        => string.IsNullOrWhiteSpace(apiBaseUrl)
-            ? Environment.GetEnvironmentVariable("TEAMSCOP_API_BASE") ?? "https://teamscop.com"
-            : apiBaseUrl.TrimEnd('/');
-
-    private static string FormatClientError(Exception ex)
-    {
-        while (ex is AggregateException { InnerException: { } inner })
-        {
-            ex = inner;
-        }
-
-        if (ex is ApiClientException api)
-        {
-            var msg = api.Message;
-            foreach (var prefix in new[] { "Org API: ", "Auth API: ", "Lifecycle API: " })
-            {
-                if (msg.StartsWith(prefix, StringComparison.Ordinal))
-                {
-                    return msg[prefix.Length..];
-                }
-            }
-
-            return msg;
-        }
-
-        return ex is HttpRequestException
-            ? "Could not reach the server."
-            : (string.IsNullOrWhiteSpace(ex.Message) ? "Something went wrong." : ex.Message);
+        await Dispatcher.UIThread.InvokeAsync(() => card.Avatar = bitmap);
     }
 
     private static string Truncate(string message)

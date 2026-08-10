@@ -8,6 +8,8 @@ public static class TotpGenerator
 {
     public const int Digits = 6;
     public const int PeriodSeconds = 30;
+    public const string PurposeUsb = "usb";
+    public const string PurposeUninstall = "uninstall";
 
     public static string GenerateSecret(int bytes = 20)
     {
@@ -23,7 +25,16 @@ public static class TotpGenerator
     }
 
     public static bool VerifyCode(string base32Secret, string code, int window = 1, DateTimeOffset? utcNow = null)
+        => VerifyCode(base32Secret, code, window, utcNow, out _);
+
+    public static bool VerifyCode(
+        string base32Secret,
+        string code,
+        int window,
+        DateTimeOffset? utcNow,
+        out long matchedStep)
     {
+        matchedStep = -1;
         if (string.IsNullOrWhiteSpace(code) || code.Length != Digits || !code.All(char.IsDigit))
         {
             return false;
@@ -33,10 +44,12 @@ public static class TotpGenerator
         var nowStep = GetTimeStep(utcNow ?? DateTimeOffset.UtcNow);
         for (var offset = -window; offset <= window; offset++)
         {
+            var step = nowStep + offset;
             if (CryptographicOperations.FixedTimeEquals(
-                    Encoding.ASCII.GetBytes(ComputeHotp(key, nowStep + offset)),
+                    Encoding.ASCII.GetBytes(ComputeHotp(key, step)),
                     Encoding.ASCII.GetBytes(code)))
             {
+                matchedStep = step;
                 return true;
             }
         }
@@ -44,15 +57,40 @@ public static class TotpGenerator
         return false;
     }
 
+    /// <summary>
+    /// §6 — a machine's approval secret for a purpose, derived deterministically from the device
+    /// key. There is no random secret, no storage and no enrolment: the server (from
+    /// <c>users.DeviceKey</c>) and the agent (from its own device key) both call THIS one function
+    /// and get the same Base32 secret, so USB and uninstall codes verify offline (§6.1, §6.4).
+    ///
+    /// <paramref name="purpose"/> (<see cref="PurposeUsb"/> / <see cref="PurposeUninstall"/>) is the
+    /// HKDF <c>info</c>, keeping the two an independent code stream — a USB code can never open an
+    /// uninstall. The device key is normalized trim+lowercase INSIDE this function so both sides
+    /// apply one identical rule; a byte difference here and codes silently stop matching.
+    ///
+    /// §6.5 — the derivation INPUT is assembled on ONE line (<c>ikm</c>). It is the device key alone
+    /// today (§6.2, an accepted weakness); adding the company key to close it is a one-line edit here
+    /// and nowhere else.
+    /// </summary>
+    public static string DeriveMachineSecret(string deviceKey, string purpose)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(deviceKey);
+        var ikm = Encoding.UTF8.GetBytes(deviceKey.Trim().ToLowerInvariant()); // §6.5 — the one input line
+        var salt = Encoding.UTF8.GetBytes("teamscop-approval-v1");             // new salt: IKM is a device key, not a random root
+        var info = Encoding.UTF8.GetBytes(purpose);
+        var derived = HKDF.DeriveKey(HashAlgorithmName.SHA256, ikm, 20, salt, info);
+        return Base32Encode(derived);
+    }
+
+    public static long GetTimeStep(DateTimeOffset utcNow)
+        => utcNow.ToUnixTimeSeconds() / PeriodSeconds;
+
     public static string BuildOtpAuthUri(string base32Secret, string issuer, string accountName)
     {
         var label = Uri.EscapeDataString($"{issuer}:{accountName}");
         var iss = Uri.EscapeDataString(issuer);
         return $"otpauth://totp/{label}?secret={base32Secret}&issuer={iss}&algorithm=SHA1&digits={Digits}&period={PeriodSeconds}";
     }
-
-    private static long GetTimeStep(DateTimeOffset utcNow)
-        => utcNow.ToUnixTimeSeconds() / PeriodSeconds;
 
     private static string ComputeHotp(byte[] key, long counter)
     {

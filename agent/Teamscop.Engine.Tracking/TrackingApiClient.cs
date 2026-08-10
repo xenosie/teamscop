@@ -1,6 +1,4 @@
-using System.Net.Http.Headers;
-using System.Net.Http.Json;
-using System.Text.Json;
+using System.Net;
 using Teamscop.Engine.Auth;
 using Teamscop.Engine.Sync;
 
@@ -17,7 +15,6 @@ public sealed class TrackingEventItem
     public string PayloadJson { get; set; } = "{}";
     public DateTime? BusinessOccurredAt { get; set; }
     public string? BusinessTimeZoneId { get; set; }
-    public long? BusinessClockVersion { get; set; }
 }
 
 public sealed class ScreenshotDisplayMeta
@@ -78,27 +75,6 @@ public sealed class TimeTrackTimeline
     public List<TimeTrackSegmentItem> Segments { get; set; } = [];
 }
 
-public sealed class StaffChainHealth
-{
-    public Guid StaffUserId { get; set; }
-    public long LastVaultSequence { get; set; }
-    public long GapCount { get; set; }
-    public bool ChainBroken { get; set; }
-    public long? BreakAfterSequence { get; set; }
-    public long? ExpectedNextSequence { get; set; }
-    public long? HighestSequenceFound { get; set; }
-    public DateTimeOffset? LastBreakAt { get; set; }
-    public string? BreakDetail { get; set; }
-    public bool? HelperAlive { get; set; }
-    public bool? TrackingOk { get; set; }
-    public int? PendingOutbox { get; set; }
-    public DateTimeOffset? LastHeartbeatAt { get; set; }
-    public bool? Online { get; set; }
-    public DateTimeOffset? LastSeenAt { get; set; }
-    public bool AgentOffline { get; set; }
-    public string? BannerMessage { get; set; }
-}
-
 public sealed class TimeTrackSegmentItem
 {
     /// <summary>working | rest | gap</summary>
@@ -106,6 +82,58 @@ public sealed class TimeTrackSegmentItem
     public DateTimeOffset Start { get; set; }
     public DateTimeOffset End { get; set; }
     public double DurationSeconds { get; set; }
+}
+
+// ---- §14.2 / §14.4 server insight DTOs (mirror the server records exactly).
+
+public sealed class LeaderboardRow
+{
+    public int Rank { get; set; }
+    public Guid UserId { get; set; }
+    public string Username { get; set; } = "";
+    public string? AvatarUrl { get; set; }
+    public long WorkedSeconds { get; set; }
+    public long IdleSeconds { get; set; }
+}
+
+/// <summary>§14.2 leaderboard: one aggregate over a business period, paged.</summary>
+public sealed class LeaderboardPage
+{
+    public DateTimeOffset From { get; set; }
+    public DateTimeOffset To { get; set; }
+    public string TimeZoneId { get; set; } = "UTC";
+    public int Page { get; set; }
+    public int PageSize { get; set; }
+    public int Total { get; set; }
+    public List<LeaderboardRow> Rows { get; set; } = [];
+}
+
+/// <summary>
+/// §14.4 self liveness for the staff sticker. Carries no captured data, which is why a plain staff
+/// member may read their own. status = protected | catching_up | not_reporting | unknown.
+/// </summary>
+public sealed class AgentSelfHealth
+{
+    public Guid UserId { get; set; }
+    public string Status { get; set; } = "unknown";
+    public string? StatusDetail { get; set; }
+    public bool AgentOffline { get; set; }
+    public bool? Online { get; set; }
+    public DateTimeOffset? LastHeartbeatAt { get; set; }
+    public DateTimeOffset? LastSeenAt { get; set; }
+    public DateTimeOffset? LastTimeTrackAt { get; set; }
+    public bool? HelperAlive { get; set; }
+    public bool? TrackingOk { get; set; }
+    public int? PendingOutbox { get; set; }
+}
+
+/// <summary>Response of <c>PUT /api/business-time</c> and the shape the app should render after a change.</summary>
+public sealed class CompanyTimeZone
+{
+    public Guid CompanyId { get; set; }
+    public string TimeZoneId { get; set; } = "UTC";
+    public string DisplayName { get; set; } = "";
+    public TimeSpan CurrentOffset { get; set; }
 }
 
 /// <summary>PHASE9 lifecycle event types shown in App history.</summary>
@@ -116,31 +144,56 @@ public static class AppHistoryEventTypes
         AgentEventTypes.Registration,
         AgentEventTypes.PowerOff,
         AgentEventTypes.UsbEvent,
-        AgentEventTypes.Uninstall,
-        AgentEventTypes.AppBroken
+        AgentEventTypes.Uninstall
     };
 
     public static bool IsAppHistory(string? eventType)
         => !string.IsNullOrWhiteSpace(eventType) && All.Contains(eventType);
 }
 
-public sealed class TrackingApiClient : IDisposable
+public sealed class TrackingApiClient : ApiClientBase
 {
-    private static readonly JsonSerializerOptions JsonOptions = new()
-    {
-        PropertyNameCaseInsensitive = true,
-        PropertyNamingPolicy = JsonNamingPolicy.CamelCase
-    };
-
-    private readonly HttpClient _http;
-    private readonly bool _ownsClient;
-
     public TrackingApiClient(string baseUrl, HttpClient? httpClient = null)
+        : base("Tracking API", baseUrl, httpClient)
     {
-        _ownsClient = httpClient is null;
-        _http = httpClient ?? new HttpClient();
-        _http.BaseAddress = new Uri(baseUrl.TrimEnd('/') + "/");
     }
+
+    // ---- §14 insight reads (leaderboard, self health) ------------------------------------------
+
+    /// <summary>§14.2 leaderboard over a business period (to is exclusive; span ≤ 31 days).</summary>
+    public async Task<LeaderboardPage> GetLeaderboardAsync(
+        string accessToken,
+        DateTimeOffset from,
+        DateTimeOffset to,
+        int page = 0,
+        int pageSize = 25,
+        CancellationToken ct = default)
+    {
+        var url = "api/tracking/leaderboard"
+                  + Query(("from", from), ("to", to), ("page", page), ("pageSize", pageSize));
+        return await GetOrNullAsync<LeaderboardPage>(url, accessToken, ct).ConfigureAwait(false)
+               ?? new LeaderboardPage { From = from, To = to };
+    }
+
+    /// <summary>§14.4 self liveness — works for plain staff.</summary>
+    public async Task<AgentSelfHealth> GetMyAgentHealthAsync(string accessToken, CancellationToken ct = default)
+        => await GetOrNullAsync<AgentSelfHealth>("api/tracking/health/me", accessToken, ct).ConfigureAwait(false)
+           ?? new AgentSelfHealth();
+
+    // ---- business time (§8.4) ------------------------------------------------------------------
+
+    public async Task<BusinessClockConfig> GetBusinessTimeAsync(string accessToken, CancellationToken ct = default)
+        => await GetOrNullAsync<BusinessClockConfig>("api/business-time/me", accessToken, ct).ConfigureAwait(false)
+           ?? throw new InvalidOperationException("Empty business-time config.");
+
+    /// <summary>Admin-only §8.4 timezone replace — the whole clock is the one setting.</summary>
+    public async Task<CompanyTimeZone> SetBusinessTimeZoneAsync(
+        string accessToken, string timeZoneId, CancellationToken ct = default)
+        => await SendJsonAsync<CompanyTimeZone>(
+                   HttpMethod.Put, "api/business-time", new { timeZoneId }, accessToken, ct).ConfigureAwait(false)
+           ?? throw new InvalidOperationException("Empty business-time response.");
+
+    // ---- event / capture reads -----------------------------------------------------------------
 
     public async Task<IReadOnlyList<TrackingEventItem>> QueryEventsAsync(
         string accessToken,
@@ -150,31 +203,8 @@ public sealed class TrackingApiClient : IDisposable
         DateTimeOffset? from = null,
         DateTimeOffset? to = null,
         CancellationToken ct = default)
-    {
-        take = Math.Clamp(take, 1, 500);
-        var url = $"api/tracking/events?staffUserId={staffUserId:D}&take={take}";
-        if (!string.IsNullOrWhiteSpace(eventType))
-        {
-            url += $"&eventType={Uri.EscapeDataString(eventType.Trim())}";
-        }
-
-        if (from is { } fromUtc)
-        {
-            url += $"&from={Uri.EscapeDataString(fromUtc.UtcDateTime.ToString("o"))}";
-        }
-
-        if (to is { } toUtc)
-        {
-            url += $"&to={Uri.EscapeDataString(toUtc.UtcDateTime.ToString("o"))}";
-        }
-
-        using var req = new HttpRequestMessage(HttpMethod.Get, url);
-        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
-        using var resp = await _http.SendAsync(req, ct).ConfigureAwait(false);
-        await ApiClientException.ThrowIfUnsuccessfulAsync(resp, "Tracking API", ct).ConfigureAwait(false);
-        return (await resp.Content.ReadFromJsonAsync<List<TrackingEventItem>>(JsonOptions, ct).ConfigureAwait(false))
-               ?? [];
-    }
+        => await QueryEventsInternalAsync(accessToken, staffUserId, take, eventType, from, to, allowForbidden: false, ct)
+            .ConfigureAwait(false);
 
     /// <summary>
     /// Fetch PHASE9 App history types (registration, power_off, usb_event, uninstall, app_broken).
@@ -192,8 +222,8 @@ public sealed class TrackingApiClient : IDisposable
         take = Math.Clamp(take, 1, 500);
         var perType = Math.Clamp(take, 1, 200);
         var tasks = AppHistoryEventTypes.All
-            .Select(t => QueryEventsAllowForbiddenAsync(
-                accessToken, staffUserId, perType, eventType: t, from, to, ct))
+            .Select(t => QueryEventsInternalAsync(
+                accessToken, staffUserId, perType, eventType: t, from, to, allowForbidden: true, ct))
             .ToArray();
         var batches = await Task.WhenAll(tasks).ConfigureAwait(false);
         return batches
@@ -206,44 +236,33 @@ public sealed class TrackingApiClient : IDisposable
             .ToList();
     }
 
-    /// <summary>Like <see cref="QueryEventsAsync"/> but returns [] on 403 (missing authority package).</summary>
-    public async Task<IReadOnlyList<TrackingEventItem>> QueryEventsAllowForbiddenAsync(
+    private async Task<IReadOnlyList<TrackingEventItem>> QueryEventsInternalAsync(
         string accessToken,
         Guid staffUserId,
-        int take = 200,
-        string? eventType = null,
-        DateTimeOffset? from = null,
-        DateTimeOffset? to = null,
-        CancellationToken ct = default)
+        int take,
+        string? eventType,
+        DateTimeOffset? from,
+        DateTimeOffset? to,
+        bool allowForbidden,
+        CancellationToken ct)
     {
         take = Math.Clamp(take, 1, 500);
-        var url = $"api/tracking/events?staffUserId={staffUserId:D}&take={take}";
-        if (!string.IsNullOrWhiteSpace(eventType))
+        var url = "api/tracking/events"
+                  + Query(
+                      ("staffUserId", staffUserId),
+                      ("take", take),
+                      ("eventType", string.IsNullOrWhiteSpace(eventType) ? null : eventType.Trim()),
+                      ("from", from),
+                      ("to", to));
+
+        if (allowForbidden)
         {
-            url += $"&eventType={Uri.EscapeDataString(eventType.Trim())}";
+            return await TryGetAsync<List<TrackingEventItem>>(url, accessToken, HttpStatusCode.Forbidden, ct)
+                       .ConfigureAwait(false)
+                   ?? [];
         }
 
-        if (from is { } fromUtc)
-        {
-            url += $"&from={Uri.EscapeDataString(fromUtc.UtcDateTime.ToString("o"))}";
-        }
-
-        if (to is { } toUtc)
-        {
-            url += $"&to={Uri.EscapeDataString(toUtc.UtcDateTime.ToString("o"))}";
-        }
-
-        using var req = new HttpRequestMessage(HttpMethod.Get, url);
-        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
-        using var resp = await _http.SendAsync(req, ct).ConfigureAwait(false);
-        if (resp.StatusCode == System.Net.HttpStatusCode.Forbidden)
-        {
-            return [];
-        }
-
-        await ApiClientException.ThrowIfUnsuccessfulAsync(resp, "Tracking API", ct).ConfigureAwait(false);
-        return (await resp.Content.ReadFromJsonAsync<List<TrackingEventItem>>(JsonOptions, ct).ConfigureAwait(false))
-               ?? [];
+        return await GetOrNullAsync<List<TrackingEventItem>>(url, accessToken, ct).ConfigureAwait(false) ?? [];
     }
 
     public async Task<IReadOnlyList<BrowsingTopUrlItem>> QueryBrowsingTopUrlsAsync(
@@ -255,54 +274,36 @@ public sealed class TrackingApiClient : IDisposable
         CancellationToken ct = default)
     {
         take = Math.Clamp(take, 1, 20);
-        var url = $"api/tracking/browsing/top-urls?staffUserId={staffUserId:D}&take={take}";
-        if (from is { } fromUtc)
-        {
-            url += $"&from={Uri.EscapeDataString(fromUtc.UtcDateTime.ToString("o"))}";
-        }
-
-        if (to is { } toUtc)
-        {
-            url += $"&to={Uri.EscapeDataString(toUtc.UtcDateTime.ToString("o"))}";
-        }
-
-        using var req = new HttpRequestMessage(HttpMethod.Get, url);
-        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
-        using var resp = await _http.SendAsync(req, ct).ConfigureAwait(false);
-        await ApiClientException.ThrowIfUnsuccessfulAsync(resp, "Tracking API", ct).ConfigureAwait(false);
-        return (await resp.Content.ReadFromJsonAsync<List<BrowsingTopUrlItem>>(JsonOptions, ct)
-                   .ConfigureAwait(false))
-               ?? [];
+        var url = "api/tracking/browsing/top-urls"
+                  + Query(("staffUserId", staffUserId), ("take", take), ("from", from), ("to", to));
+        return await GetOrNullAsync<List<BrowsingTopUrlItem>>(url, accessToken, ct).ConfigureAwait(false) ?? [];
     }
 
-    /// <summary>Metadata-only screenshot list (no JPEG payloads).</summary>
+    /// <summary>
+    /// Metadata-only screenshot list (no JPEG payloads), newest first. Paging is a cursor: pass the
+    /// last item's <c>occurredAt</c> as <paramref name="before"/> for the next page. <paramref name="before"/>
+    /// is exclusive on occurredAt and only narrows the window — it cannot widen it past <paramref name="to"/>.
+    /// </summary>
     public async Task<IReadOnlyList<ScreenshotMetaItem>> QueryScreenshotsAsync(
         string accessToken,
         Guid staffUserId,
         int take = 100,
         DateTimeOffset? from = null,
         DateTimeOffset? to = null,
-        CancellationToken ct = default)
+        // `before` follows the cancellation token deliberately: existing callers pass the token
+        // positionally in this slot, so the cursor is added without shifting their binding.
+        CancellationToken ct = default,
+        DateTimeOffset? before = null)
     {
         take = Math.Clamp(take, 1, 200);
-        var url = $"api/tracking/screenshots?staffUserId={staffUserId:D}&take={take}";
-        if (from is { } fromUtc)
-        {
-            url += $"&from={Uri.EscapeDataString(fromUtc.UtcDateTime.ToString("o"))}";
-        }
-
-        if (to is { } toUtc)
-        {
-            url += $"&to={Uri.EscapeDataString(toUtc.UtcDateTime.ToString("o"))}";
-        }
-
-        using var req = new HttpRequestMessage(HttpMethod.Get, url);
-        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
-        using var resp = await _http.SendAsync(req, ct).ConfigureAwait(false);
-        await ApiClientException.ThrowIfUnsuccessfulAsync(resp, "Tracking API", ct).ConfigureAwait(false);
-        return (await resp.Content.ReadFromJsonAsync<List<ScreenshotMetaItem>>(JsonOptions, ct)
-                   .ConfigureAwait(false))
-               ?? [];
+        var url = "api/tracking/screenshots"
+                  + Query(
+                      ("staffUserId", staffUserId),
+                      ("take", take),
+                      ("from", from),
+                      ("to", to),
+                      ("before", before));
+        return await GetOrNullAsync<List<ScreenshotMetaItem>>(url, accessToken, ct).ConfigureAwait(false) ?? [];
     }
 
     public Task<byte[]> GetScreenshotThumbAsync(
@@ -311,9 +312,9 @@ public sealed class TrackingApiClient : IDisposable
         int displayIndex = 1,
         int maxWidth = 320,
         CancellationToken ct = default)
-        => GetScreenshotBytesAsync(
-            accessToken,
+        => GetBytesAsync(
             $"api/tracking/screenshots/{eventId:D}/thumb?display={displayIndex}&w={maxWidth}",
+            accessToken,
             ct);
 
     public Task<byte[]> GetScreenshotImageAsync(
@@ -321,9 +322,9 @@ public sealed class TrackingApiClient : IDisposable
         Guid eventId,
         int displayIndex = 1,
         CancellationToken ct = default)
-        => GetScreenshotBytesAsync(
-            accessToken,
+        => GetBytesAsync(
             $"api/tracking/screenshots/{eventId:D}/image?display={displayIndex}",
+            accessToken,
             ct);
 
     public async Task<IReadOnlyList<BrowsingDomainSummary>> QueryBrowsingDomainsAsync(
@@ -335,24 +336,9 @@ public sealed class TrackingApiClient : IDisposable
         CancellationToken ct = default)
     {
         take = Math.Clamp(take, 1, 500);
-        var url = $"api/tracking/browsing?staffUserId={staffUserId:D}&take={take}";
-        if (from is { } fromUtc)
-        {
-            url += $"&from={Uri.EscapeDataString(fromUtc.UtcDateTime.ToString("o"))}";
-        }
-
-        if (to is { } toUtc)
-        {
-            url += $"&to={Uri.EscapeDataString(toUtc.UtcDateTime.ToString("o"))}";
-        }
-
-        using var req = new HttpRequestMessage(HttpMethod.Get, url);
-        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
-        using var resp = await _http.SendAsync(req, ct).ConfigureAwait(false);
-        await ApiClientException.ThrowIfUnsuccessfulAsync(resp, "Tracking API", ct).ConfigureAwait(false);
-        return (await resp.Content.ReadFromJsonAsync<List<BrowsingDomainSummary>>(JsonOptions, ct)
-                   .ConfigureAwait(false))
-               ?? [];
+        var url = "api/tracking/browsing"
+                  + Query(("staffUserId", staffUserId), ("take", take), ("from", from), ("to", to));
+        return await GetOrNullAsync<List<BrowsingDomainSummary>>(url, accessToken, ct).ConfigureAwait(false) ?? [];
     }
 
     public async Task<BrowsingDomainDetail> QueryBrowsingDomainDetailAsync(
@@ -365,24 +351,9 @@ public sealed class TrackingApiClient : IDisposable
         CancellationToken ct = default)
     {
         take = Math.Clamp(take, 1, 500);
-        var url =
-            $"api/tracking/browsing/detail?staffUserId={staffUserId:D}&domain={Uri.EscapeDataString(domain)}&take={take}";
-        if (from is { } fromUtc)
-        {
-            url += $"&from={Uri.EscapeDataString(fromUtc.UtcDateTime.ToString("o"))}";
-        }
-
-        if (to is { } toUtc)
-        {
-            url += $"&to={Uri.EscapeDataString(toUtc.UtcDateTime.ToString("o"))}";
-        }
-
-        using var req = new HttpRequestMessage(HttpMethod.Get, url);
-        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
-        using var resp = await _http.SendAsync(req, ct).ConfigureAwait(false);
-        await ApiClientException.ThrowIfUnsuccessfulAsync(resp, "Tracking API", ct).ConfigureAwait(false);
-        return (await resp.Content.ReadFromJsonAsync<BrowsingDomainDetail>(JsonOptions, ct)
-                   .ConfigureAwait(false))
+        var url = "api/tracking/browsing/detail"
+                  + Query(("staffUserId", staffUserId), ("domain", domain), ("take", take), ("from", from), ("to", to));
+        return await GetOrNullAsync<BrowsingDomainDetail>(url, accessToken, ct).ConfigureAwait(false)
                ?? new BrowsingDomainDetail { Domain = domain };
     }
 
@@ -393,84 +364,25 @@ public sealed class TrackingApiClient : IDisposable
         DateTimeOffset to,
         CancellationToken ct = default)
     {
-        var url =
-            $"api/tracking/timetrack?staffUserId={staffUserId:D}"
-            + $"&from={Uri.EscapeDataString(from.UtcDateTime.ToString("o"))}"
-            + $"&to={Uri.EscapeDataString(to.UtcDateTime.ToString("o"))}";
-        using var req = new HttpRequestMessage(HttpMethod.Get, url);
-        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
-        using var resp = await _http.SendAsync(req, ct).ConfigureAwait(false);
-        await ApiClientException.ThrowIfUnsuccessfulAsync(resp, "Tracking API", ct).ConfigureAwait(false);
-        return (await resp.Content.ReadFromJsonAsync<TimeTrackTimeline>(JsonOptions, ct)
-                   .ConfigureAwait(false))
+        var url = "api/tracking/timetrack" + Query(("staffUserId", staffUserId), ("from", from), ("to", to));
+        return await GetOrNullAsync<TimeTrackTimeline>(url, accessToken, ct).ConfigureAwait(false)
                ?? new TimeTrackTimeline { From = from, To = to };
-    }
-
-    public async Task<StaffChainHealth> QueryChainHealthAsync(
-        string accessToken,
-        Guid staffUserId,
-        CancellationToken ct = default)
-    {
-        var url = $"api/tracking/chain/{staffUserId:D}";
-        using var req = new HttpRequestMessage(HttpMethod.Get, url);
-        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
-        using var resp = await _http.SendAsync(req, ct).ConfigureAwait(false);
-        await ApiClientException.ThrowIfUnsuccessfulAsync(resp, "Tracking API", ct).ConfigureAwait(false);
-        return (await resp.Content.ReadFromJsonAsync<StaffChainHealth>(JsonOptions, ct)
-                   .ConfigureAwait(false))
-               ?? new StaffChainHealth { StaffUserId = staffUserId };
     }
 
     public async Task<StaffTrackingConfig> GetStaffTrackingConfigAsync(
         string accessToken,
         Guid staffUserId,
         CancellationToken ct = default)
-    {
-        var url = $"api/tracking/config/{staffUserId:D}";
-        using var req = new HttpRequestMessage(HttpMethod.Get, url);
-        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
-        using var resp = await _http.SendAsync(req, ct).ConfigureAwait(false);
-        await ApiClientException.ThrowIfUnsuccessfulAsync(resp, "Tracking API", ct).ConfigureAwait(false);
-        return (await resp.Content.ReadFromJsonAsync<StaffTrackingConfig>(JsonOptions, ct)
-                   .ConfigureAwait(false))
-               ?? new StaffTrackingConfig { StaffUserId = staffUserId };
-    }
+        => await GetOrNullAsync<StaffTrackingConfig>($"api/tracking/config/{staffUserId:D}", accessToken, ct)
+               .ConfigureAwait(false)
+           ?? new StaffTrackingConfig { StaffUserId = staffUserId };
 
     public async Task<StaffTrackingConfig> UpsertStaffTrackingConfigAsync(
         string accessToken,
         Guid staffUserId,
         StaffTrackingConfig config,
         CancellationToken ct = default)
-    {
-        var url = $"api/tracking/config/{staffUserId:D}";
-        using var req = new HttpRequestMessage(HttpMethod.Put, url);
-        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
-        req.Content = JsonContent.Create(config, options: JsonOptions);
-        using var resp = await _http.SendAsync(req, ct).ConfigureAwait(false);
-        await ApiClientException.ThrowIfUnsuccessfulAsync(resp, "Tracking API", ct).ConfigureAwait(false);
-        return (await resp.Content.ReadFromJsonAsync<StaffTrackingConfig>(JsonOptions, ct)
-                   .ConfigureAwait(false))
-               ?? config;
-    }
-
-    private async Task<byte[]> GetScreenshotBytesAsync(
-        string accessToken,
-        string url,
-        CancellationToken ct)
-    {
-        using var req = new HttpRequestMessage(HttpMethod.Get, url);
-        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
-        using var resp = await _http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct)
-            .ConfigureAwait(false);
-        await ApiClientException.ThrowIfUnsuccessfulAsync(resp, "Tracking API", ct).ConfigureAwait(false);
-        return await resp.Content.ReadAsByteArrayAsync(ct).ConfigureAwait(false);
-    }
-
-    public void Dispose()
-    {
-        if (_ownsClient)
-        {
-            _http.Dispose();
-        }
-    }
+        => await SendJsonAsync<StaffTrackingConfig>(
+                   HttpMethod.Put, $"api/tracking/config/{staffUserId:D}", config, accessToken, ct).ConfigureAwait(false)
+           ?? config;
 }

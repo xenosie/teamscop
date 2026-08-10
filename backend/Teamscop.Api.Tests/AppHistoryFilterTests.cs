@@ -10,7 +10,6 @@ public class AppHistoryFilterTests
     [InlineData(AgentEventTypes.PowerOff, true)]
     [InlineData(AgentEventTypes.UsbEvent, true)]
     [InlineData(AgentEventTypes.Uninstall, true)]
-    [InlineData(AgentEventTypes.AppBroken, true)]
     [InlineData(AgentEventTypes.Heartbeat, false)]
     [InlineData(AgentEventTypes.TimeTrack, false)]
     [InlineData(null, false)]

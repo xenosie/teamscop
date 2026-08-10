@@ -1,0 +1,37 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+
+    <!--
+      Teamscop.App is a WinExe. Referencing it drags in its entry point, which would otherwise
+      collide with the test host's; the test project is a library, so nothing is generated.
+    -->
+    <GenerateProgramFile>true</GenerateProgramFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Avalonia.Headless" Version="11.3.12" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.8.0" />
+    <PackageReference Include="xunit" Version="2.5.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.5.3" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!--
+      C2 in docs/10-GAP-ANALYSIS.md: agent/Teamscop.App had ZERO automated coverage, and defects
+      2, 3, 5, 6, 7 and 8 all had a half living in exactly this project. This is that half's tests.
+    -->
+    <ProjectReference Include="..\Teamscop.App\Teamscop.App.csproj" />
+  </ItemGroup>
+
+</Project>

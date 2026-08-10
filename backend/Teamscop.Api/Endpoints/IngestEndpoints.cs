@@ -20,31 +20,12 @@ public static class IngestEndpoints
         IIngestService ingest,
         CancellationToken ct)
     {
-        var userId = GetUserId(principal);
+        var userId = principal.UserId();
         if (userId is null)
         {
             return Results.Unauthorized();
         }
 
-        try
-        {
-            var result = await ingest.IngestBatchAsync(userId.Value, request, ct);
-            return Results.Ok(result);
-        }
-        catch (UnauthorizedAccessException)
-        {
-            return Results.Unauthorized();
-        }
-        catch (InvalidOperationException ex)
-        {
-            return Results.BadRequest(new { error = ex.Message });
-        }
-    }
-
-    private static Guid? GetUserId(ClaimsPrincipal principal)
-    {
-        var sub = principal.FindFirstValue(ClaimTypes.NameIdentifier)
-            ?? principal.FindFirstValue("sub");
-        return Guid.TryParse(sub, out var id) ? id : null;
+        return Results.Ok(await ingest.IngestBatchAsync(userId.Value, request, ct));
     }
 }

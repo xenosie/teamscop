@@ -19,7 +19,4 @@ public sealed class RolePolicy
         : @"%ProgramFiles%\Teamscop\Admin";
 
     public static RolePolicy For(AgentRole role) => new() { Role = role };
-
-    public static RolePolicy FromAuthRole(string role)
-        => For(role.Equals("admin", StringComparison.OrdinalIgnoreCase) ? AgentRole.Admin : AgentRole.Staff);
 }

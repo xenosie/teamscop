@@ -14,15 +14,16 @@
                    FontSize="22"
                    FontWeight="SemiBold"
                    Foreground="{StaticResource TsTextBrush}" />
-        <TextBlock Text="Generate the current 6-digit approval code for a staff member (USB unlock or uninstall). Requires usb_approval or uninstall_approval."
+        <TextBlock Text="The current 6-digit approval code for a staff member (USB unlock or uninstall). Requires usb_approval or uninstall_approval."
                    Classes="ts-muted"
                    FontSize="12"
                    TextWrapping="Wrap" />
       </StackPanel>
 
-      <TextBlock Text="No staff listed"
+      <TextBlock Text="{Binding EmptyListMessage}"
                  Classes="ts-muted"
                  FontSize="13"
+                 TextWrapping="Wrap"
                  IsVisible="{Binding !HasStaff}" />
 
       <ScrollViewer Classes="ts-transparent-scroll"
@@ -36,10 +37,8 @@
                       HorizontalAlignment="Stretch"
                       Command="{Binding #RootCodes.((vm:TotpCodesViewModel)DataContext).SelectStaffCommand}"
                       CommandParameter="{Binding}">
-                <StackPanel Spacing="2" Margin="8,6">
-                  <TextBlock Text="{Binding Username}" FontWeight="SemiBold" FontSize="13" />
-                  <TextBlock Text="{Binding StatusLabel}" Classes="ts-muted" FontSize="11" />
-                </StackPanel>
+                <TextBlock Text="{Binding DisplayName}" FontWeight="SemiBold" FontSize="13"
+                           Margin="8,8" TextWrapping="Wrap" />
               </Button>
             </DataTemplate>
           </ItemsControl.ItemTemplate>
@@ -52,12 +51,44 @@
                  FontSize="16"
                  FontWeight="SemiBold"
                  Foreground="{StaticResource TsTextBrush}" />
-      <TextBlock Text="{Binding Code}"
-                 FontSize="42"
-                 FontWeight="Bold"
-                 LetterSpacing="8"
-                 Foreground="{StaticResource TsAccentBrush}"
-                 IsVisible="{Binding HasCode}" />
+      <!-- Both codes at once. They were behind a toggle that defaulted to USB, so an admin who
+           did not notice it read out a USB code for an uninstall — which the guard refuses every
+           time, making uninstall look broken for every employee. There is now no mode to mispick. -->
+      <StackPanel Spacing="4" IsVisible="{Binding HasCode}">
+        <TextBlock Text="USB unlock" Classes="ts-muted" FontSize="12" />
+        <StackPanel Orientation="Horizontal" Spacing="10">
+          <TextBlock Text="{Binding UsbCode}"
+                     FontSize="36"
+                     FontWeight="Bold"
+                     LetterSpacing="6"
+                     VerticalAlignment="Center"
+                     Foreground="{StaticResource TsAccentBrush}" />
+          <Button Classes="ts-toolbar" Padding="8" VerticalAlignment="Center"
+                  Command="{Binding CopyUsbCodeCommand}"
+                  ToolTip.Tip="Copy USB code">
+            <heroIcons:HeroIcon Type="ClipboardDocument" Kind="Outline" Width="18" Height="18"
+                                Foreground="{StaticResource TsAccentBrush}" />
+          </Button>
+        </StackPanel>
+      </StackPanel>
+
+      <StackPanel Spacing="4" IsVisible="{Binding HasCode}">
+        <TextBlock Text="Uninstall" Classes="ts-muted" FontSize="12" />
+        <StackPanel Orientation="Horizontal" Spacing="10">
+          <TextBlock Text="{Binding UninstallCode}"
+                     FontSize="36"
+                     FontWeight="Bold"
+                     LetterSpacing="6"
+                     VerticalAlignment="Center"
+                     Foreground="{StaticResource TsAccentBrush}" />
+          <Button Classes="ts-toolbar" Padding="8" VerticalAlignment="Center"
+                  Command="{Binding CopyUninstallCodeCommand}"
+                  ToolTip.Tip="Copy uninstall code">
+            <heroIcons:HeroIcon Type="ClipboardDocument" Kind="Outline" Width="18" Height="18"
+                                Foreground="{StaticResource TsAccentBrush}" />
+          </Button>
+        </StackPanel>
+      </StackPanel>
       <TextBlock Classes="ts-muted" FontSize="13" IsVisible="{Binding HasCode}">
         <Run Text="Expires in " />
         <Run Text="{Binding RemainingSeconds}" />
@@ -77,6 +108,7 @@
                 Command="{Binding CopyCodeCommand}"
                 IsVisible="{Binding HasCode}" />
       </StackPanel>
+
       <TextBlock Text="{Binding StatusMessage}"
                  Foreground="{StaticResource TsAccentBrush}"
                  FontSize="13"

@@ -1,9 +1,41 @@
+using System.Text.Json;
 using Teamscop.Engine.Sync;
 
 namespace Teamscop.Api.Tests;
 
 public class SyncEngineTests
 {
+    [Fact]
+    public async Task FileOutbox_LegacyAndNewFiles_DequeueInArrivalOrder()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "teamscop-outbox-legacy-" + Guid.NewGuid().ToString("N"));
+        var pending = Path.Combine(root, "outbox", "pending");
+        Directory.CreateDirectory(pending);
+        try
+        {
+            // A legacy `{guid:N}.json` file (pre-migration naming) written before the newer item.
+            // Its rename must key off its LastWriteTime so it still dequeues first, not last.
+            var legacy = OutboxItem.Create(AgentEventTypes.Heartbeat, new { seq = 1 });
+            var legacyPath = Path.Combine(pending, $"{legacy.ClientEventId:N}.json");
+            File.WriteAllText(legacyPath, JsonSerializer.Serialize(legacy));
+            File.SetLastWriteTimeUtc(legacyPath, DateTime.UtcNow.AddMinutes(-10));
+
+            var queue = new FileOutboxQueue(root); // constructor migrates the legacy filename
+            var newer = OutboxItem.Create(AgentEventTypes.Heartbeat, new { seq = 2 });
+            await queue.EnqueueAsync(newer);
+
+            var ordered = await queue.PeekPendingAsync(10);
+
+            Assert.Equal(2, ordered.Count);
+            Assert.Equal(legacy.ClientEventId, ordered[0].ClientEventId);
+            Assert.Equal(newer.ClientEventId, ordered[1].ClientEventId);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
     [Fact]
     public async Task FileOutbox_Enqueue_Peek_Ack()
     {

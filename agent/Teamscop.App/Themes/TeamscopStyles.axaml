@@ -67,6 +67,16 @@
   <Style Selector="Button.ts-toolbar">
     <Setter Property="Theme" Value="{StaticResource TsToolbarButton}" />
   </Style>
+  <!-- Active tab (enrolment mode switch) — a binding, replacing imperative background swaps -->
+  <Style Selector="Button.ts-toolbar.selected">
+    <Setter Property="Background" Value="{StaticResource TsAccentBrush}" />
+    <Setter Property="Foreground" Value="White" />
+    <Setter Property="BorderBrush" Value="{StaticResource TsAccentBrush}" />
+  </Style>
+  <Style Selector="Button.ts-toolbar.selected:pointerover">
+    <Setter Property="Background" Value="{StaticResource TsAccentHoverBrush}" />
+    <Setter Property="Foreground" Value="White" />
+  </Style>
 
   <Style Selector="Button.ts-link">
     <Setter Property="Theme" Value="{StaticResource TsLinkButton}" />
@@ -218,6 +228,40 @@
     <Setter Property="Background" Value="{StaticResource TsAccentHoverBrush}" />
   </Style>
 
+  <!-- Today's overview: clickable stat tile and the table rows beneath it -->
+  <Style Selector="Button.ts-tile">
+    <Setter Property="Theme" Value="{StaticResource TsStatTileButton}" />
+  </Style>
+  <Style Selector="Button.ts-data-row">
+    <Setter Property="Theme" Value="{StaticResource TsDataRowButton}" />
+  </Style>
+
+  <!--
+    Chromeless ListBox used purely for its VirtualizingStackPanel: the screenshot gallery must
+    realise only the rows on screen, otherwise a day of captures fires every thumbnail request at
+    once (§15.1, §15.2). Selection is meaningless here — each tile is its own button.
+  -->
+  <Style Selector="ListBox.ts-plain">
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="Padding" Value="0" />
+  </Style>
+  <Style Selector="ListBox.ts-plain ListBoxItem">
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="Padding" Value="0" />
+    <Setter Property="Margin" Value="0" />
+    <Setter Property="MinHeight" Value="0" />
+    <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+  </Style>
+  <Style Selector="ListBox.ts-plain ListBoxItem /template/ ContentPresenter">
+    <Setter Property="Background" Value="Transparent" />
+  </Style>
+  <Style Selector="ListBox.ts-plain ListBoxItem:selected /template/ ContentPresenter">
+    <Setter Property="Background" Value="Transparent" />
+  </Style>
+  <Style Selector="ListBox.ts-plain ListBoxItem:pointerover /template/ ContentPresenter">
+    <Setter Property="Background" Value="Transparent" />
+  </Style>
 
 </Styles>
 

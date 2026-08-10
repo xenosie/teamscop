@@ -2,7 +2,12 @@ using System.Globalization;
 
 namespace Teamscop.Engine.Tracking;
 
-/// <summary>Format event times on the company synchronized business timeline (PHASE5).</summary>
+/// <summary>
+/// Format event times on the company business timeline (§8.2 — always company time,
+/// never employee-local and never viewer-local).
+/// Preference order: the server's projected business time, then the business time the
+/// agent stamped into the payload, then a local conversion via the company timezone.
+/// </summary>
 public static class BusinessTimeDisplay
 {
     public static string FormatEventTime(TrackingEventItem evt, BusinessClock? companyClock = null)

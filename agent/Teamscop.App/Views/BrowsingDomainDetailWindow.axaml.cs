@@ -1,6 +1,7 @@
 using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Threading;
+using Teamscop.App.Composition;
 using Teamscop.App.ViewModels;
 
 namespace Teamscop.App.Views;
@@ -36,9 +37,10 @@ public partial class BrowsingDomainDetailWindow : Window
         DateTimeOffset? fromUtc,
         DateTimeOffset? toUtc)
     {
-        var vm = new BrowsingDomainDetailViewModel(domain, staffUserId, fromUtc, toUtc);
+        var vm = new BrowsingDomainDetailViewModel(
+            AppServices.Current, domain, staffUserId, fromUtc, toUtc);
         var win = new BrowsingDomainDetailWindow { DataContext = vm };
-        _ = vm.LoadAsync();
+        vm.LoadAsync().FireAndForget(AppServices.Current.Log, "Browsing detail");
         await win.ShowDialog(owner);
     }
 

@@ -1,9 +1,8 @@
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
-using Teamscop.App.Services;
 using CommunityToolkit.Mvvm.Input;
-using Teamscop.Engine.Auth;
-using Teamscop.Engine.Lifecycle;
+using Teamscop.App.Composition;
+using Teamscop.App.Services;
 using Teamscop.Engine.Tracking;
 
 namespace Teamscop.App.ViewModels;
@@ -20,17 +19,19 @@ public sealed record PeriodOption(int Seconds, string Label)
 
 public sealed partial class StaffTrackingSettingsViewModel : ObservableObject
 {
-    private readonly LocalAgentStore _store;
-    private string _apiBaseUrl;
+    private readonly TeamscopApi _api;
+    private readonly SessionStore _session;
+    private readonly CompanyClock _clock;
     private Guid? _staffUserId;
     private Guid? _loadedForStaff;
     private int _loadGeneration;
     private StaffTrackingConfig? _loaded;
 
-    public StaffTrackingSettingsViewModel(string? apiBaseUrl = null)
+    public StaffTrackingSettingsViewModel(AppServices services)
     {
-        _store = AppSessionStore.ForActiveSession();
-        _apiBaseUrl = ResolveApiBase(apiBaseUrl);
+        _api = services.Api;
+        _session = services.Session;
+        _clock = services.Clock;
         SelectedQuality = QualityOptions.First(q => q.Value == ScreenshotQuality.Medium);
         SelectedPeriod = PeriodOptions.First(p => p.Seconds == 180);
     }
@@ -89,7 +90,8 @@ public sealed partial class StaffTrackingSettingsViewModel : ObservableObject
         SelectedPeriod = PeriodOptions.First(p => p.Seconds == 180);
     }
 
-    public async Task LoadAsync(Guid staffUserId, string staffName, bool force = false)
+    public async Task LoadAsync(
+        Guid staffUserId, string staffName, bool force = false, CancellationToken ct = default)
     {
         if (!force && _loadedForStaff == staffUserId && HasLoaded)
         {
@@ -100,8 +102,7 @@ public sealed partial class StaffTrackingSettingsViewModel : ObservableObject
         _staffUserId = staffUserId;
         StaffName = staffName;
 
-        var state = _store.Load();
-        if (string.IsNullOrWhiteSpace(state.AccessToken))
+        if (!_session.HasToken)
         {
             await Dispatcher.UIThread.InvokeAsync(() =>
             {
@@ -114,7 +115,6 @@ public sealed partial class StaffTrackingSettingsViewModel : ObservableObject
             return;
         }
 
-        _apiBaseUrl = ResolveApiBase(state.ApiBaseUrl);
         await Dispatcher.UIThread.InvokeAsync(() =>
         {
             IsLoading = true;
@@ -124,8 +124,7 @@ public sealed partial class StaffTrackingSettingsViewModel : ObservableObject
 
         try
         {
-            using var api = new TrackingApiClient(_apiBaseUrl);
-            var cfg = await api.GetStaffTrackingConfigAsync(state.AccessToken, staffUserId)
+            var cfg = await _api.GetStaffTrackingConfigAsync(staffUserId, ct)
                 .ConfigureAwait(false);
 
             await Dispatcher.UIThread.InvokeAsync(() =>
@@ -136,13 +135,23 @@ public sealed partial class StaffTrackingSettingsViewModel : ObservableObject
                 IsLoading = false;
             });
         }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            // Cancelled by a newer selection or by leaving the route. Hand the section back rather
+            // than leaving the spinner up: a newer load owns the flag once the generation moves.
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                if (generation != _loadGeneration) return;
+                IsLoading = false;
+            });
+        }
         catch (Exception ex)
         {
             await Dispatcher.UIThread.InvokeAsync(() =>
             {
                 if (generation != _loadGeneration) return;
                 HasLoaded = false;
-                ErrorMessage = FormatError(ex);
+                ErrorMessage = ApiError.Describe(ex, "Failed to load or save settings.");
                 IsLoading = false;
             });
         }
@@ -151,37 +160,38 @@ public sealed partial class StaffTrackingSettingsViewModel : ObservableObject
     [RelayCommand]
     private async Task SaveAsync()
     {
-        if (_staffUserId is null || SelectedQuality is null || SelectedPeriod is null)
+        if (_staffUserId is not { } staffUserId || SelectedQuality is null || SelectedPeriod is null)
         {
             return;
         }
 
-        var state = _store.Load();
-        if (string.IsNullOrWhiteSpace(state.AccessToken))
+        if (!_session.HasToken)
         {
             ErrorMessage = "Sign in required.";
             return;
         }
 
+        // The same guard the load path uses: switching staff mid-save must not let this response
+        // repaint the next member's settings with the previous member's values.
+        var generation = _loadGeneration;
         IsSaving = true;
         ErrorMessage = null;
         StatusMessage = null;
 
         try
         {
-            _apiBaseUrl = ResolveApiBase(state.ApiBaseUrl);
-            var body = _loaded ?? new StaffTrackingConfig { StaffUserId = _staffUserId.Value };
-            body.StaffUserId = _staffUserId.Value;
+            var body = _loaded ?? new StaffTrackingConfig { StaffUserId = staffUserId };
+            body.StaffUserId = staffUserId;
             body.ScreenshotQuality = SelectedQuality.Value;
             body.ScreenshotPeriodSeconds = SelectedPeriod.Seconds;
 
-            using var api = new TrackingApiClient(_apiBaseUrl);
-            var updated = await api.UpsertStaffTrackingConfigAsync(
-                    state.AccessToken, _staffUserId.Value, body)
+            var updated = await _api.UpsertStaffTrackingConfigAsync(
+                    staffUserId, body, CancellationToken.None)
                 .ConfigureAwait(false);
 
             await Dispatcher.UIThread.InvokeAsync(() =>
             {
+                if (generation != _loadGeneration) return;
                 ApplyLoaded(updated);
                 StatusMessage = "Saved. Staff agent updates immediately when online (SignalR).";
                 IsSaving = false;
@@ -191,7 +201,8 @@ public sealed partial class StaffTrackingSettingsViewModel : ObservableObject
         {
             await Dispatcher.UIThread.InvokeAsync(() =>
             {
-                ErrorMessage = FormatError(ex);
+                if (generation != _loadGeneration) return;
+                ErrorMessage = ApiError.Describe(ex, "Failed to load or save settings.");
                 IsSaving = false;
             });
         }
@@ -204,7 +215,9 @@ public sealed partial class StaffTrackingSettingsViewModel : ObservableObject
                           ?? QualityOptions.First(q => q.Value == ScreenshotQuality.Medium);
         SelectedPeriod = PeriodOptions.FirstOrDefault(p => p.Seconds == cfg.ScreenshotPeriodSeconds)
                          ?? ClosestPeriod(cfg.ScreenshotPeriodSeconds);
-        ConfigVersionLabel = $"Config version {cfg.ConfigVersion} · updated {cfg.UpdatedAt.LocalDateTime:yyyy-MM-dd HH:mm}";
+        // Company time, like every other timestamp in the app (§8.2) — not the viewer's zone.
+        ConfigVersionLabel =
+            $"Config version {cfg.ConfigVersion} · updated {_clock.FormatDateTime(cfg.UpdatedAt)}";
         HasLoaded = true;
         ErrorMessage = null;
     }
@@ -216,18 +229,4 @@ public sealed partial class StaffTrackingSettingsViewModel : ObservableObject
             .First();
     }
 
-    private static string FormatError(Exception ex)
-    {
-        if (ex is HttpRequestException)
-        {
-            return "Could not reach the server.";
-        }
-
-        return string.IsNullOrWhiteSpace(ex.Message) ? "Failed to load or save settings." : ex.Message;
-    }
-
-    private static string ResolveApiBase(string? apiBaseUrl)
-        => string.IsNullOrWhiteSpace(apiBaseUrl)
-            ? Environment.GetEnvironmentVariable("TEAMSCOP_API_BASE") ?? "https://teamscop.com"
-            : apiBaseUrl.TrimEnd('/');
 }

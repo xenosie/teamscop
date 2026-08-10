@@ -2,10 +2,9 @@ using System.Collections.ObjectModel;
 using System.Globalization;
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
-using Teamscop.App.Services;
 using CommunityToolkit.Mvvm.Input;
-using Teamscop.Engine.Auth;
-using Teamscop.Engine.Lifecycle;
+using Teamscop.App.Composition;
+using Teamscop.App.Services;
 using Teamscop.Engine.Tracking;
 
 namespace Teamscop.App.ViewModels;
@@ -33,21 +32,25 @@ public sealed partial class BrowsingDomainRowViewModel : ObservableObject
 
 public sealed partial class BrowsingHistoryViewModel : ObservableObject
 {
-    private readonly LocalAgentStore _store;
-    private string _apiBaseUrl;
+    /// <summary>A busy day is hundreds of domains; the roll-up shows a page of them (§15.1).</summary>
+    private const int PageSize = 25;
+
+    private readonly TeamscopApi _api;
+    private readonly SessionStore _session;
+    private readonly UiLog _log;
+    private readonly PageWindow<BrowsingDomainRowViewModel> _page;
     private Guid? _loadedForStaff;
     private DateTimeOffset? _loadedFromUtc;
     private DateTimeOffset? _loadedToUtc;
     private int _loadGeneration;
 
-    public BrowsingHistoryViewModel(string? apiBaseUrl = null)
+    public BrowsingHistoryViewModel(AppServices services)
     {
-        _store = AppSessionStore.ForActiveSession();
-        _apiBaseUrl = ResolveApiBase(apiBaseUrl);
-        Chain = new ChainHealthViewModel(apiBaseUrl);
+        _api = services.Api;
+        _session = services.Session;
+        _log = services.Log;
+        _page = new PageWindow<BrowsingDomainRowViewModel>(Items, PageSize);
     }
-
-    public ChainHealthViewModel Chain { get; }
 
     public ObservableCollection<BrowsingDomainRowViewModel> Items { get; } = [];
 
@@ -60,6 +63,32 @@ public sealed partial class BrowsingHistoryViewModel : ObservableObject
     public bool HasItems => Items.Count > 0;
     public bool ShowEmpty => !IsLoading && string.IsNullOrWhiteSpace(ErrorMessage) && !HasItems;
     public bool ShowError => !IsLoading && !string.IsNullOrWhiteSpace(ErrorMessage);
+    public bool IsPaged => _page.IsPaged;
+    public bool HasMore => _page.HasMore;
+    public string PageLabel => _page.Label;
+
+    [RelayCommand]
+    private void ShowMore()
+    {
+        _page.More();
+        RaisePaging();
+    }
+
+    [RelayCommand]
+    private void ShowAll()
+    {
+        _page.All();
+        RaisePaging();
+    }
+
+    private void RaisePaging()
+    {
+        OnPropertyChanged(nameof(IsPaged));
+        OnPropertyChanged(nameof(HasMore));
+        OnPropertyChanged(nameof(PageLabel));
+        OnPropertyChanged(nameof(HasItems));
+        OnPropertyChanged(nameof(ShowEmpty));
+    }
 
     partial void OnIsLoadingChanged(bool value)
     {
@@ -76,15 +105,13 @@ public sealed partial class BrowsingHistoryViewModel : ObservableObject
     public void Reset()
     {
         Interlocked.Increment(ref _loadGeneration);
-        Chain.Reset();
         _loadedForStaff = null;
         _loadedFromUtc = null;
         _loadedToUtc = null;
-        Items.Clear();
+        _page.Reset([]);
         ErrorMessage = null;
         EmptyMessage = null;
-        OnPropertyChanged(nameof(HasItems));
-        OnPropertyChanged(nameof(ShowEmpty));
+        RaisePaging();
     }
 
     public void OpenDomain(string domain)
@@ -101,7 +128,8 @@ public sealed partial class BrowsingHistoryViewModel : ObservableObject
         Guid staffUserId,
         bool force = false,
         DateTimeOffset? fromUtc = null,
-        DateTimeOffset? toUtc = null)
+        DateTimeOffset? toUtc = null,
+        CancellationToken ct = default)
     {
         if (!force
             && _loadedForStaff == staffUserId
@@ -112,24 +140,21 @@ public sealed partial class BrowsingHistoryViewModel : ObservableObject
             return;
         }
 
-        _ = Chain.LoadAsync(staffUserId);
         var generation = Interlocked.Increment(ref _loadGeneration);
-        var state = _store.Load();
-        if (string.IsNullOrWhiteSpace(state.AccessToken))
+        if (!_session.HasToken)
         {
             await Dispatcher.UIThread.InvokeAsync(() =>
             {
                 if (generation != _loadGeneration) return;
-                Items.Clear();
+                _page.Reset([]);
                 ErrorMessage = "Sign in required.";
                 EmptyMessage = null;
                 IsLoading = false;
-                OnPropertyChanged(nameof(HasItems));
+                RaisePaging();
             });
             return;
         }
 
-        _apiBaseUrl = ResolveApiBase(state.ApiBaseUrl);
         await Dispatcher.UIThread.InvokeAsync(() =>
         {
             IsLoading = true;
@@ -139,20 +164,14 @@ public sealed partial class BrowsingHistoryViewModel : ObservableObject
 
         try
         {
-            using var api = new TrackingApiClient(_apiBaseUrl);
-            var rows = await api.QueryBrowsingDomainsAsync(
-                    state.AccessToken, staffUserId, take: 200, from: fromUtc, to: toUtc)
+            var rows = await _api.QueryBrowsingDomainsAsync(
+                    staffUserId, take: 200, from: fromUtc, to: toUtc, ct)
                 .ConfigureAwait(false);
 
             await Dispatcher.UIThread.InvokeAsync(() =>
             {
                 if (generation != _loadGeneration) return;
-                Items.Clear();
-                foreach (var row in rows)
-                {
-                    Items.Add(new BrowsingDomainRowViewModel(this, row));
-                }
-
+                _page.Reset(rows.Select(r => new BrowsingDomainRowViewModel(this, r)).ToList());
                 _loadedForStaff = staffUserId;
                 _loadedFromUtc = fromUtc;
                 _loadedToUtc = toUtc;
@@ -163,49 +182,35 @@ public sealed partial class BrowsingHistoryViewModel : ObservableObject
                     : null;
                 ErrorMessage = null;
                 IsLoading = false;
-                OnPropertyChanged(nameof(HasItems));
-                OnPropertyChanged(nameof(ShowEmpty));
+                RaisePaging();
+            });
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            // Cancelled by a newer selection or by leaving the route. Hand the section back rather
+            // than leaving the spinner up: a newer load owns the flag once the generation moves.
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                if (generation != _loadGeneration) return;
+                IsLoading = false;
             });
         }
         catch (Exception ex)
         {
+            _log.Warn($"Browsing history for {staffUserId:D} could not be loaded", ex);
             await Dispatcher.UIThread.InvokeAsync(() =>
             {
                 if (generation != _loadGeneration) return;
-                Items.Clear();
-                ErrorMessage = FormatError(ex);
+                _page.Reset([]);
+                ErrorMessage = ApiError.Describe(ex, "Failed to load browsing history.");
                 EmptyMessage = null;
                 IsLoading = false;
                 _loadedForStaff = staffUserId;
                 _loadedFromUtc = fromUtc;
                 _loadedToUtc = toUtc;
-                OnPropertyChanged(nameof(HasItems));
-                OnPropertyChanged(nameof(ShowEmpty));
+                RaisePaging();
             });
         }
     }
 
-    private static string FormatError(Exception ex)
-    {
-        while (ex is AggregateException { InnerException: { } inner })
-        {
-            ex = inner;
-        }
-
-        if (ex is ApiClientException api)
-        {
-            var msg = api.Message;
-            const string prefix = "Tracking API: ";
-            return msg.StartsWith(prefix, StringComparison.Ordinal) ? msg[prefix.Length..] : msg;
-        }
-
-        return ex is HttpRequestException
-            ? "Could not reach the server."
-            : (string.IsNullOrWhiteSpace(ex.Message) ? "Failed to load browsing history." : ex.Message);
-    }
-
-    private static string ResolveApiBase(string? apiBaseUrl)
-        => string.IsNullOrWhiteSpace(apiBaseUrl)
-            ? Environment.GetEnvironmentVariable("TEAMSCOP_API_BASE") ?? "https://teamscop.com"
-            : apiBaseUrl.TrimEnd('/');
 }

@@ -56,4 +56,15 @@ public class CompanyTokenCodecTests
         Assert.Equal(a, b);
         Assert.Equal(64, a.Length);
     }
+
+    [Fact]
+    public void HardwareFingerprints_WithDifferentMacs_ProduceDistinctKeys()
+    {
+        const string prefix = "teamscop-device-v3";
+        var a = DeviceKeyProvider.HashNormalized(prefix, "UUID-1", "BOARD", "BIOS", "aabbccddeeff", "DISK1");
+        var b = DeviceKeyProvider.HashNormalized(prefix, "UUID-1", "BOARD", "BIOS", "112233445566", "DISK1");
+        // Same SMBIOS, different NIC MAC → different device (OEM collision case).
+        Assert.NotEqual(a, b);
+        Assert.Equal(64, a.Length);
+    }
 }

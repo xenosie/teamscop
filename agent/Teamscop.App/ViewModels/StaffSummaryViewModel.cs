@@ -1,10 +1,8 @@
 using System.Collections.ObjectModel;
-using System.Globalization;
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
+using Teamscop.App.Composition;
 using Teamscop.App.Services;
-using Teamscop.Engine.Auth;
-using Teamscop.Engine.Lifecycle;
 using Teamscop.Engine.Tracking;
 
 namespace Teamscop.App.ViewModels;
@@ -22,17 +20,17 @@ public sealed partial class StaffSummaryTopUrlViewModel : ObservableObject
 
 public sealed partial class StaffSummaryViewModel : ObservableObject
 {
-    private readonly LocalAgentStore _store;
-    private string _apiBaseUrl;
+    private readonly TeamscopApi _api;
+    private readonly SessionStore _session;
     private Guid? _loadedForStaff;
     private DateTimeOffset? _loadedFromUtc;
     private DateTimeOffset? _loadedToUtc;
     private int _loadGeneration;
 
-    public StaffSummaryViewModel(string? apiBaseUrl = null)
+    public StaffSummaryViewModel(AppServices services)
     {
-        _store = AppSessionStore.ForActiveSession();
-        _apiBaseUrl = ResolveApiBase(apiBaseUrl);
+        _api = services.Api;
+        _session = services.Session;
     }
 
     public ObservableCollection<StaffSummaryTopUrlViewModel> TopUrls { get; } = [];
@@ -87,7 +85,8 @@ public sealed partial class StaffSummaryViewModel : ObservableObject
         DateTimeOffset? fromUtc,
         DateTimeOffset? toUtc,
         DateTime? businessStart,
-        DateTime? businessEnd)
+        DateTime? businessEnd,
+        CancellationToken ct = default)
     {
         if (!force
             && _loadedForStaff == staffUserId
@@ -99,8 +98,7 @@ public sealed partial class StaffSummaryViewModel : ObservableObject
         }
 
         var generation = Interlocked.Increment(ref _loadGeneration);
-        var state = _store.Load();
-        if (string.IsNullOrWhiteSpace(state.AccessToken))
+        if (!_session.HasToken)
         {
             await Dispatcher.UIThread.InvokeAsync(() =>
             {
@@ -128,7 +126,6 @@ public sealed partial class StaffSummaryViewModel : ObservableObject
             return;
         }
 
-        _apiBaseUrl = ResolveApiBase(state.ApiBaseUrl);
         await Dispatcher.UIThread.InvokeAsync(() =>
         {
             IsLoading = true;
@@ -138,26 +135,25 @@ public sealed partial class StaffSummaryViewModel : ObservableObject
 
         try
         {
-            using var api = new TrackingApiClient(_apiBaseUrl);
             // Partial packages: load each independently so one 403 does not blank the summary.
             TimeTrackTimeline? timeline = null;
             IReadOnlyList<BrowsingTopUrlItem> topUrls = [];
             try
             {
-                timeline = await api.QueryTimeTrackTimelineAsync(
-                    state.AccessToken, staffUserId, fromUtc.Value, toUtc.Value).ConfigureAwait(false);
+                timeline = await _api.QueryTimeTrackTimelineAsync(
+                    staffUserId, fromUtc.Value, toUtc.Value, ct).ConfigureAwait(false);
             }
-            catch (ApiClientException ex) when (ex.StatusCode == System.Net.HttpStatusCode.Forbidden)
+            catch (Exception ex) when (ApiError.IsForbidden(ex))
             {
                 // Missing view_timetrack — omit worked time.
             }
 
             try
             {
-                topUrls = await api.QueryBrowsingTopUrlsAsync(
-                    state.AccessToken, staffUserId, take: 3, from: fromUtc, to: toUtc).ConfigureAwait(false);
+                topUrls = await _api.QueryBrowsingTopUrlsAsync(
+                    staffUserId, take: 3, from: fromUtc, to: toUtc, ct).ConfigureAwait(false);
             }
-            catch (ApiClientException ex) when (ex.StatusCode == System.Net.HttpStatusCode.Forbidden)
+            catch (Exception ex) when (ApiError.IsForbidden(ex))
             {
                 // Missing view_browser_history — omit top URLs.
             }
@@ -165,13 +161,13 @@ public sealed partial class StaffSummaryViewModel : ObservableObject
             var workedSeconds = timeline?.Segments
                 .Where(s => string.Equals(s.Kind, "working", StringComparison.OrdinalIgnoreCase))
                 .Sum(s => s.DurationSeconds) ?? 0;
-            var periodLabel = FormatPeriod(businessStart.Value, businessEnd.Value);
+            var periodLabel = CompanyClock.FormatDayRange(businessStart.Value, businessEnd.Value);
 
             await Dispatcher.UIThread.InvokeAsync(() =>
             {
                 if (generation != _loadGeneration) return;
                 WorkedSentence =
-                    $"This staff worked {FormatDuration(workedSeconds)} during {periodLabel}.";
+                    $"This staff worked {CompanyClock.FormatDurationLong(workedSeconds)} during {periodLabel}.";
                 TopUrlsIntro = "And his top visiting URLs in Chrome is ;";
                 TopUrls.Clear();
                 var rank = 1;
@@ -201,13 +197,23 @@ public sealed partial class StaffSummaryViewModel : ObservableObject
                 _loadedToUtc = toUtc;
             });
         }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            // Cancelled by a newer selection or by leaving the route. Hand the section back rather
+            // than leaving the spinner up: a newer load owns the flag once the generation moves.
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                if (generation != _loadGeneration) return;
+                IsLoading = false;
+            });
+        }
         catch (Exception ex)
         {
             await Dispatcher.UIThread.InvokeAsync(() =>
             {
                 if (generation != _loadGeneration) return;
                 ClearBody();
-                ErrorMessage = FormatError(ex);
+                ErrorMessage = ApiError.Describe(ex, "Failed to load summary.");
                 IsLoading = false;
                 _loadedForStaff = staffUserId;
                 _loadedFromUtc = fromUtc;
@@ -227,43 +233,4 @@ public sealed partial class StaffSummaryViewModel : ObservableObject
         ErrorMessage = null;
     }
 
-    private static string FormatPeriod(DateTime start, DateTime end)
-        => start.Date == end.Date
-            ? start.ToString("dd MMM yyyy", CultureInfo.InvariantCulture)
-            : $"{start:dd MMM yyyy} – {end:dd MMM yyyy}";
-
-    private static string FormatDuration(double seconds)
-    {
-        if (seconds < 1)
-        {
-            return "0 minutes";
-        }
-
-        var ts = TimeSpan.FromSeconds(seconds);
-        if (ts.TotalHours >= 1)
-        {
-            var h = (int)ts.TotalHours;
-            var m = ts.Minutes;
-            return m > 0 ? $"{h} hour{(h == 1 ? "" : "s")} {m} minute{(m == 1 ? "" : "s")}"
-                : $"{h} hour{(h == 1 ? "" : "s")}";
-        }
-
-        var mins = Math.Max(1, (int)Math.Round(ts.TotalMinutes));
-        return $"{mins} minute{(mins == 1 ? "" : "s")}";
-    }
-
-    private static string FormatError(Exception ex)
-    {
-        if (ex is HttpRequestException)
-        {
-            return "Could not reach the server.";
-        }
-
-        return string.IsNullOrWhiteSpace(ex.Message) ? "Failed to load summary." : ex.Message;
-    }
-
-    private static string ResolveApiBase(string? apiBaseUrl)
-        => string.IsNullOrWhiteSpace(apiBaseUrl)
-            ? Environment.GetEnvironmentVariable("TEAMSCOP_API_BASE") ?? "https://teamscop.com"
-            : apiBaseUrl.TrimEnd('/');
 }

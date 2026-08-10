@@ -23,6 +23,12 @@ public sealed class SessionHelperReply
 {
     public bool Ok { get; set; }
     public string? Error { get; set; }
+    public bool? ScreenshotEnabled { get; set; }
+    public bool? TimeTrackEnabled { get; set; }
+    public bool? BrowserHistoryEnabled { get; set; }
+    public int? ScreenshotPeriodSeconds { get; set; }
+    public string? ScreenshotQuality { get; set; }
+    public long? ConfigVersion { get; set; }
 }
 
 /// <summary>Length-prefixed JSON framing over a named pipe.</summary>
@@ -65,6 +71,66 @@ public static class SessionHelperPipeCodec
         }
 
         return JsonSerializer.Deserialize<T>(body, JsonOptions);
+    }
+
+    /// <summary>
+    /// Blocking counterpart of <see cref="WriteAsync{T}"/>, for the service's pipe threads.
+    ///
+    /// Overlapped (async) pipe I/O frees its NativeOverlapped when an operation is cancelled, while
+    /// the I/O completion may still be in flight. The completion then lands on a freed overlapped and
+    /// the runtime raises "'overlapped' has already been freed" on a thread-pool thread, which no
+    /// catch can intercept and which terminates the process. Blocking I/O on a dedicated thread has
+    /// no overlapped and no completion callback, so that failure mode does not exist.
+    /// </summary>
+    public static void Write<T>(Stream stream, T value)
+    {
+        var json = JsonSerializer.SerializeToUtf8Bytes(value, JsonOptions);
+        var header = new byte[4];
+        BinaryPrimitives.WriteInt32LittleEndian(header, json.Length);
+        stream.Write(header, 0, header.Length);
+        stream.Write(json, 0, json.Length);
+        stream.Flush();
+    }
+
+    /// <summary>Blocking counterpart of <see cref="ReadAsync{T}"/>. Null when the peer hung up.</summary>
+    public static T? Read<T>(Stream stream)
+    {
+        var header = new byte[4];
+        if (!ReadExact(stream, header))
+        {
+            return default;
+        }
+
+        var len = BinaryPrimitives.ReadInt32LittleEndian(header);
+        if (len <= 0 || len > 16 * 1024 * 1024)
+        {
+            throw new InvalidDataException("Invalid pipe frame length.");
+        }
+
+        var body = new byte[len];
+        if (!ReadExact(stream, body))
+        {
+            return default;
+        }
+
+        return JsonSerializer.Deserialize<T>(body, JsonOptions);
+    }
+
+    private static bool ReadExact(Stream stream, byte[] buffer)
+    {
+        var offset = 0;
+        while (offset < buffer.Length)
+        {
+            var n = stream.Read(buffer, offset, buffer.Length - offset);
+            if (n == 0)
+            {
+                return false;
+            }
+
+            offset += n;
+        }
+
+        return true;
     }
 
     private static async Task<bool> ReadExactAsync(Stream stream, byte[] buffer, CancellationToken ct)
@@ -155,8 +221,17 @@ public sealed class SessionHelperPipeServer : IAsyncDisposable
                 if (string.Equals(msg.Type, "ping", StringComparison.OrdinalIgnoreCase))
                 {
                     _tracking.NoteSessionHelperAlive();
-                    await SessionHelperPipeCodec.WriteAsync(server, new SessionHelperReply { Ok = true }, ct)
-                        .ConfigureAwait(false);
+                    var cfg = _tracking.Config;
+                    await SessionHelperPipeCodec.WriteAsync(server, new SessionHelperReply
+                    {
+                        Ok = true,
+                        ScreenshotEnabled = cfg.ScreenshotEnabled,
+                        TimeTrackEnabled = cfg.TimeTrackEnabled,
+                        BrowserHistoryEnabled = cfg.BrowserHistoryEnabled,
+                        ScreenshotPeriodSeconds = cfg.ScreenshotPeriodSeconds,
+                        ScreenshotQuality = cfg.ScreenshotQuality.ToString(),
+                        ConfigVersion = cfg.ConfigVersion
+                    }, ct).ConfigureAwait(false);
                     continue;
                 }
 
@@ -248,7 +323,7 @@ public sealed class SessionHelperPipeClient : IAsyncDisposable
         await _stream.ConnectAsync(timeoutMs, ct).ConfigureAwait(false);
     }
 
-    public async Task PingAsync(CancellationToken ct)
+    public async Task<SessionHelperReply> PingAsync(CancellationToken ct)
     {
         EnsureConnected();
         await SessionHelperPipeCodec.WriteAsync(_stream!, new SessionHelperMessage { Type = "ping" }, ct)
@@ -258,6 +333,8 @@ public sealed class SessionHelperPipeClient : IAsyncDisposable
         {
             throw new InvalidOperationException(reply?.Error ?? "ping failed");
         }
+
+        return reply;
     }
 
     public async Task SendCaptureAsync(

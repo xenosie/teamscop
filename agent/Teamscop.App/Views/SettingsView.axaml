@@ -1,6 +1,7 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="clr-namespace:Teamscop.App.ViewModels"
+             xmlns:svc="clr-namespace:Teamscop.App.Services"
              x:Class="Teamscop.App.Views.SettingsView"
              x:Name="RootSettings"
              x:DataType="vm:SettingsViewModel"
@@ -15,26 +16,26 @@
                    FontSize="22"
                    FontWeight="SemiBold"
                    Foreground="{StaticResource TsTextBrush}" />
-        <TextBlock Text="Company clock and policeman authorities. Changes sync to staff agents immediately."
+        <TextBlock Text="Company time zone and policeman authorities. Changes sync to staff agents immediately."
                    Classes="ts-muted"
                    FontSize="13"
                    TextWrapping="Wrap" />
       </StackPanel>
 
-      <!-- Business time -->
+      <!-- Company time zone -->
       <StackPanel Spacing="6">
-        <TextBlock Text="Business time"
+        <TextBlock Text="Company time zone"
                    FontSize="16"
                    FontWeight="SemiBold"
                    Foreground="{StaticResource TsTextBrush}" />
-        <TextBlock Text="One synchronized timezone for every staff agent and admin (tracking, App history, lifecycle stamps)."
+        <TextBlock Text="One time zone for the whole company. Every screen — tracking, App history, lifecycle — shows company time, never the viewer's local time."
                    Classes="ts-muted"
                    FontSize="13"
                    TextWrapping="Wrap" />
       </StackPanel>
 
       <StackPanel Spacing="6">
-        <TextBlock Text="Current sync"
+        <TextBlock Text="Current"
                    FontSize="14"
                    FontWeight="SemiBold"
                    Foreground="{StaticResource TsTextBrush}" />
@@ -43,67 +44,42 @@
           <Run Text="{Binding CurrentTimeZoneLabel}" />
         </TextBlock>
         <TextBlock Classes="ts-muted" FontSize="13">
-          <Run Text="Business local now: " />
+          <Run Text="Company time now: " />
           <Run Text="{Binding CurrentBusinessLocal}" />
-        </TextBlock>
-        <TextBlock Classes="ts-muted" FontSize="13">
-          <Run Text="Synchronized: " />
-          <Run Text="{Binding IsSynchronized}" />
-          <Run Text=" · version " />
-          <Run Text="{Binding ClockVersion}" />
-        </TextBlock>
-        <TextBlock Classes="ts-muted" FontSize="13">
-          <Run Text="Updated: " />
-          <Run Text="{Binding UpdatedAtLabel}" />
         </TextBlock>
       </StackPanel>
 
       <StackPanel Spacing="10">
-        <TextBlock Text="Declare business time"
+        <TextBlock Text="Change time zone"
                    FontSize="14"
                    FontWeight="SemiBold"
                    Foreground="{StaticResource TsTextBrush}" />
-        <TextBlock Text="Pick the company timezone and the absolute business wall time that should be true right now. Staff agents lock to this timeline immediately."
+        <TextBlock Text="Pick a zone and save. Staff agents pick it up immediately; stored events are not rewritten, they are simply displayed in the new zone."
                    Classes="ts-muted"
                    FontSize="12"
                    TextWrapping="Wrap" />
 
-        <TextBlock Text="Time zone" Classes="ts-muted" FontSize="12" Margin="0,6,0,0" />
         <ComboBox ItemsSource="{Binding TimeZoneOptions}"
-                  SelectedItem="{Binding SelectedTimeZoneId}"
+                  SelectedItem="{Binding SelectedTimeZone}"
                   MinHeight="40"
+                  MaxDropDownHeight="360"
                   HorizontalAlignment="Stretch"
-                  IsEnabled="{Binding CanSave}" />
+                  IsEnabled="{Binding CanSave}">
+          <ComboBox.ItemTemplate>
+            <DataTemplate x:DataType="svc:TimeZoneOption">
+              <TextBlock Text="{Binding Label}" />
+            </DataTemplate>
+          </ComboBox.ItemTemplate>
+        </ComboBox>
 
-        <Grid ColumnDefinitions="*,*,*" RowDefinitions="Auto,Auto,Auto,Auto" Margin="0,8,0,0">
-          <TextBlock Grid.Row="0" Grid.Column="0" Text="Year" Classes="ts-muted" FontSize="12" Margin="0,0,8,4" />
-          <TextBlock Grid.Row="0" Grid.Column="1" Text="Month" Classes="ts-muted" FontSize="12" Margin="0,0,8,4" />
-          <TextBlock Grid.Row="0" Grid.Column="2" Text="Day" Classes="ts-muted" FontSize="12" Margin="0,0,0,4" />
-          <TextBox Grid.Row="1" Grid.Column="0" Text="{Binding YearText}" Margin="0,0,8,10" IsEnabled="{Binding CanSave}" />
-          <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding MonthText}" Margin="0,0,8,10" IsEnabled="{Binding CanSave}" />
-          <TextBox Grid.Row="1" Grid.Column="2" Text="{Binding DayText}" Margin="0,0,0,10" IsEnabled="{Binding CanSave}" />
-
-          <TextBlock Grid.Row="2" Grid.Column="0" Text="Hour" Classes="ts-muted" FontSize="12" Margin="0,0,8,4" />
-          <TextBlock Grid.Row="2" Grid.Column="1" Text="Minute" Classes="ts-muted" FontSize="12" Margin="0,0,8,4" />
-          <TextBlock Grid.Row="2" Grid.Column="2" Text="Second" Classes="ts-muted" FontSize="12" Margin="0,0,0,4" />
-          <TextBox Grid.Row="3" Grid.Column="0" Text="{Binding HourText}" Margin="0,0,8,0" IsEnabled="{Binding CanSave}" />
-          <TextBox Grid.Row="3" Grid.Column="1" Text="{Binding MinuteText}" Margin="0,0,8,0" IsEnabled="{Binding CanSave}" />
-          <TextBox Grid.Row="3" Grid.Column="2" Text="{Binding SecondText}" IsEnabled="{Binding CanSave}" />
-        </Grid>
-
-        <StackPanel Orientation="Horizontal" Spacing="10" Margin="0,14,0,0">
-          <Button Classes="ts-primary"
-                  Content="Sync business clock"
-                  MinWidth="180"
-                  Height="40"
-                  Command="{Binding SyncBusinessClockCommand}"
-                  IsEnabled="{Binding CanSave}" />
-          <Button Classes="ts-link"
-                  Content="Use current time in zone"
-                  Height="40"
-                  Command="{Binding UseSuggestedNowCommand}"
-                  IsEnabled="{Binding CanSave}" />
-        </StackPanel>
+        <Button Classes="ts-primary"
+                Content="Save time zone"
+                MinWidth="180"
+                Height="40"
+                HorizontalAlignment="Left"
+                Margin="0,4,0,0"
+                Command="{Binding SaveTimeZoneCommand}"
+                IsEnabled="{Binding CanSave}" />
 
         <TextBlock Text="{Binding StatusMessage}"
                    Foreground="{StaticResource TsAccentBrush}"

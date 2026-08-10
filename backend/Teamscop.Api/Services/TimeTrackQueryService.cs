@@ -1,7 +1,7 @@
-using System.Globalization;
-using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Teamscop.Api.Data;
+using Teamscop.Api.Services.Access;
+using Teamscop.Api.Services.Insights;
 using Teamscop.Engine.Sync;
 
 namespace Teamscop.Api.Services;
@@ -16,6 +16,12 @@ public sealed class TimeTrackTimelineDto
 
 public sealed class TimeTrackSegmentDto
 {
+    /// <summary>Not reporting while it should have been — PC off, asleep, or agent down. Drawn red.</summary>
+    public const string GapKind = "gap";
+
+    /// <summary>Outside the machine's lifetime: before it joined, or still in the future. Drawn as nothing.</summary>
+    public const string UnknownKind = "unknown";
+
     /// <summary>working | rest | gap</summary>
     public string Kind { get; set; } = "gap";
     public DateTimeOffset Start { get; set; }
@@ -35,10 +41,8 @@ public interface ITimeTrackQueryService
 
 public sealed class TimeTrackQueryService(
     AppDbContext db,
-    IAuthorityService authorities) : ITimeTrackQueryService
+    IStaffDataGuard guard) : ITimeTrackQueryService
 {
-    private readonly record struct RawSeg(DateTimeOffset Start, DateTimeOffset End, string Kind);
-
     public async Task<TimeTrackTimelineDto> GetTimelineAsync(
         Guid viewerId,
         Guid staffUserId,
@@ -46,20 +50,8 @@ public sealed class TimeTrackQueryService(
         DateTimeOffset to,
         CancellationToken ct)
     {
-        // Self sticker: own rolling timeline without view_timetrack / CanViewStaff.
-        var isSelf = viewerId == staffUserId;
-        if (!isSelf)
-        {
-            if (!await authorities.CanViewStaffAsync(viewerId, staffUserId, ct))
-            {
-                throw new UnauthorizedAccessException("Not allowed to view this staff member's tracking data.");
-            }
-
-            if (!await authorities.CanViewEventTypeAsync(viewerId, AgentEventTypes.TimeTrack, ct))
-            {
-                throw new UnauthorizedAccessException("Missing authority package for timetrack.");
-            }
-        }
+        // §4.5's one exception: own rolling timeline feeds the staff sticker, no package needed.
+        await guard.RequireViewableAsync(viewerId, staffUserId, AgentEventTypes.TimeTrack, allowSelf: true, ct);
 
         from = from.ToUniversalTime();
         to = to.ToUniversalTime();
@@ -72,25 +64,31 @@ public sealed class TimeTrackQueryService(
         // segments that started before `from` but overlap the window are included.
         var loadFrom = from.AddHours(-6);
         var rows = await db.AgentEvents.AsNoTracking()
-            .Where(e => e.UserId == staffUserId
-                        && e.EventType == AgentEventTypes.TimeTrack
-                        && e.OccurredAt >= loadFrom
-                        && e.OccurredAt < to)
-            .OrderBy(e => e.OccurredAt)
+            .ForStaff(staffUserId)
+            .OfType(AgentEventTypes.TimeTrack)
+            .InPeriod(loadFrom, to)
+            .Oldest()
             .Select(e => e.PayloadJson)
             .ToListAsync(ct);
 
-        var raw = new List<RawSeg>(rows.Count);
+        var raw = new List<TimeTrackSegment>(rows.Count);
         foreach (var payload in rows)
         {
-            if (TryParseSegment(payload, out var seg))
+            if (TimeTrackSegmentReader.TryRead(payload, out var seg))
             {
                 raw.Add(seg);
             }
         }
 
+        // When this machine joined. Before that instant there was nothing to record, so the bar must
+        // not claim the employee was resting — it has no opinion at all.
+        var joinedAt = await db.Users.AsNoTracking()
+            .Where(u => u.Id == staffUserId)
+            .Select(u => (DateTimeOffset?)u.CreatedAt)
+            .FirstOrDefaultAsync(ct);
+
         var clipped = ClipAndMerge(raw, from, to);
-        var covering = FillGaps(clipped, from, to);
+        var covering = FillGaps(clipped, from, to, joinedAt, DateTimeOffset.UtcNow);
         var total = (to - from).TotalSeconds;
 
         return new TimeTrackTimelineDto
@@ -103,11 +101,11 @@ public sealed class TimeTrackQueryService(
     }
 
     private static List<TimeTrackSegmentDto> ClipAndMerge(
-        List<RawSeg> raw,
+        List<TimeTrackSegment> raw,
         DateTimeOffset from,
         DateTimeOffset to)
     {
-        var clipped = new List<RawSeg>();
+        var clipped = new List<TimeTrackSegment>();
         foreach (var seg in raw.OrderBy(s => s.Start))
         {
             var start = seg.Start < from ? from : seg.Start;
@@ -131,7 +129,7 @@ public sealed class TimeTrackQueryService(
         {
             var next = clipped[i];
             // Merge overlapping or touching same-kind segments.
-            if (next.Kind == cur.Kind && next.Start <= cur.End.AddSeconds(1))
+            if (next.Working == cur.Working && next.Start <= cur.End.AddSeconds(1))
             {
                 if (next.End > cur.End)
                 {
@@ -149,10 +147,25 @@ public sealed class TimeTrackQueryService(
         return merged;
     }
 
+    /// <summary>
+    /// Fills everything the recorded segments do not cover, distinguishing two very different kinds
+    /// of "no data".
+    ///
+    /// A gap means the agent should have been reporting and was not — the PC was off or asleep, or
+    /// the agent was not running. That is real information and stays red.
+    ///
+    /// Time outside the machine's lifetime is not. Before <paramref name="knownFrom"/> the machine
+    /// had not joined yet, and after <paramref name="knownTo"/> — now — it has not happened. Painting
+    /// those red said the employee spent the rest of today idle, and on the day someone joined it
+    /// claimed they had been resting since midnight. Both are unknown, and unknown is drawn as
+    /// nothing at all.
+    /// </summary>
     private static List<TimeTrackSegmentDto> FillGaps(
         List<TimeTrackSegmentDto> coverage,
         DateTimeOffset from,
-        DateTimeOffset to)
+        DateTimeOffset to,
+        DateTimeOffset? knownFrom,
+        DateTimeOffset knownTo)
     {
         var result = new List<TimeTrackSegmentDto>();
         var cursor = from;
@@ -160,7 +173,7 @@ public sealed class TimeTrackQueryService(
         {
             if (seg.Start > cursor)
             {
-                result.Add(Gap(cursor, seg.Start));
+                AddUncovered(result, cursor, seg.Start, knownFrom, knownTo);
             }
 
             var start = seg.Start < cursor ? cursor : seg.Start;
@@ -179,199 +192,79 @@ public sealed class TimeTrackQueryService(
 
         if (cursor < to)
         {
-            result.Add(Gap(cursor, to));
+            AddUncovered(result, cursor, to, knownFrom, knownTo);
         }
 
         if (result.Count == 0)
         {
-            result.Add(Gap(from, to));
+            AddUncovered(result, from, to, knownFrom, knownTo);
         }
 
         return result;
     }
 
-    private static TimeTrackSegmentDto Gap(DateTimeOffset start, DateTimeOffset end)
-        => new()
+    /// <summary>
+    /// Splits an uncovered span into up to three pieces: unknown before the machine joined, a real
+    /// gap while it should have been reporting, and unknown for anything still in the future.
+    /// </summary>
+    private static void AddUncovered(
+        List<TimeTrackSegmentDto> result,
+        DateTimeOffset start,
+        DateTimeOffset end,
+        DateTimeOffset? knownFrom,
+        DateTimeOffset knownTo)
+    {
+        if (end <= start)
         {
-            Kind = "gap",
+            return;
+        }
+
+        // Before the machine existed.
+        if (knownFrom is { } joined && start < joined)
+        {
+            var boundary = joined < end ? joined : end;
+            Add(result, TimeTrackSegmentDto.UnknownKind, start, boundary);
+            start = boundary;
+            if (end <= start)
+            {
+                return;
+            }
+        }
+
+        // Still in the future.
+        if (end > knownTo)
+        {
+            var boundary = knownTo > start ? knownTo : start;
+            Add(result, TimeTrackSegmentDto.GapKind, start, boundary);
+            Add(result, TimeTrackSegmentDto.UnknownKind, boundary, end);
+            return;
+        }
+
+        Add(result, TimeTrackSegmentDto.GapKind, start, end);
+    }
+
+    private static void Add(List<TimeTrackSegmentDto> result, string kind, DateTimeOffset start, DateTimeOffset end)
+    {
+        if (end <= start)
+        {
+            return;
+        }
+
+        result.Add(new TimeTrackSegmentDto
+        {
+            Kind = kind,
             Start = start,
             End = end,
             DurationSeconds = Math.Max(0, (end - start).TotalSeconds)
-        };
+        });
+    }
 
-    private static TimeTrackSegmentDto ToDto(RawSeg seg)
+    private static TimeTrackSegmentDto ToDto(TimeTrackSegment seg)
         => new()
         {
             Kind = seg.Kind,
             Start = seg.Start,
             End = seg.End,
-            DurationSeconds = Math.Max(0, (seg.End - seg.Start).TotalSeconds)
+            DurationSeconds = seg.DurationSeconds
         };
-
-    private static bool TryParseSegment(string payloadJson, out RawSeg seg)
-    {
-        seg = default;
-        try
-        {
-            using var innerDoc = OpenInnerDocument(payloadJson);
-            if (innerDoc is null)
-            {
-                return false;
-            }
-
-            var root = innerDoc.RootElement;
-            var kind = ReadState(root);
-            if (kind is null)
-            {
-                return false;
-            }
-
-            if (!TryReadTime(root, out var start, out var end))
-            {
-                return false;
-            }
-
-            if (end <= start)
-            {
-                return false;
-            }
-
-            seg = new RawSeg(start, end, kind);
-            return true;
-        }
-        catch (Exception ex) when (ex is JsonException or FormatException or ArgumentException)
-        {
-            return false;
-        }
-    }
-
-    private static string? ReadState(JsonElement root)
-    {
-        if (!root.TryGetProperty("State", out var stateEl)
-            && !root.TryGetProperty("state", out stateEl))
-        {
-            return null;
-        }
-
-        if (stateEl.ValueKind == JsonValueKind.Number && stateEl.TryGetInt32(out var n))
-        {
-            return n == 1 ? "working" : "rest";
-        }
-
-        if (stateEl.ValueKind == JsonValueKind.String)
-        {
-            var s = stateEl.GetString()?.Trim();
-            if (string.Equals(s, "Working", StringComparison.OrdinalIgnoreCase)
-                || s == "1")
-            {
-                return "working";
-            }
-
-            if (string.Equals(s, "Rest", StringComparison.OrdinalIgnoreCase)
-                || s == "0")
-            {
-                return "rest";
-            }
-        }
-
-        if (stateEl.ValueKind is JsonValueKind.True)
-        {
-            return "working";
-        }
-
-        if (stateEl.ValueKind is JsonValueKind.False)
-        {
-            return "rest";
-        }
-
-        return null;
-    }
-
-    private static bool TryReadTime(JsonElement root, out DateTimeOffset start, out DateTimeOffset end)
-    {
-        start = default;
-        end = default;
-        var startOk = TryGetDate(root, out start, "startedAtUtc", "StartedAtUtc", "startedAt", "StartedAt");
-        var endOk = TryGetDate(root, out end, "endedAtUtc", "EndedAtUtc", "endedAt", "EndedAt");
-        if (startOk && endOk)
-        {
-            return true;
-        }
-
-        // Fallback: duration + end only.
-        if (endOk && root.TryGetProperty("durationSeconds", out var dur)
-            && dur.TryGetDouble(out var seconds)
-            && seconds > 0)
-        {
-            start = end.AddSeconds(-seconds);
-            return true;
-        }
-
-        return false;
-    }
-
-    private static bool TryGetDate(JsonElement root, out DateTimeOffset value, params string[] names)
-    {
-        value = default;
-        foreach (var name in names)
-        {
-            if (!root.TryGetProperty(name, out var el) || el.ValueKind != JsonValueKind.String)
-            {
-                continue;
-            }
-
-            var s = el.GetString();
-            if (string.IsNullOrWhiteSpace(s))
-            {
-                continue;
-            }
-
-            if (DateTimeOffset.TryParse(
-                    s,
-                    CultureInfo.InvariantCulture,
-                    DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal,
-                    out value))
-            {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    private static JsonDocument? OpenInnerDocument(string payloadJson)
-    {
-        if (string.IsNullOrWhiteSpace(payloadJson))
-        {
-            return null;
-        }
-
-        using var outer = JsonDocument.Parse(payloadJson);
-        var root = outer.RootElement;
-        if (root.TryGetProperty("payloadBase64", out var pb)
-            && pb.ValueKind == JsonValueKind.String)
-        {
-            var b64 = pb.GetString();
-            if (string.IsNullOrWhiteSpace(b64))
-            {
-                return null;
-            }
-
-            try
-            {
-                return JsonDocument.Parse(Convert.FromBase64String(b64));
-            }
-            catch (Exception ex) when (ex is FormatException or JsonException)
-            {
-                return null;
-            }
-        }
-
-        if (root.TryGetProperty("State", out _) || root.TryGetProperty("state", out _))
-        {
-            return JsonDocument.Parse(payloadJson);
-        }
-
-        return null;
-    }
 }

@@ -33,8 +33,10 @@ public static class TimeTrackStickerPositionStore
         {
             return JsonSerializer.Deserialize<TimeTrackStickerPosition>(File.ReadAllText(path), JsonOptions);
         }
-        catch
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
         {
+            // Unreadable file: the sticker opens at its default corner. A wider catch would hide
+            // real defects behind a cosmetic feature.
             return null;
         }
     }
@@ -52,9 +54,9 @@ public static class TimeTrackStickerPositionStore
 
             File.WriteAllText(path, JsonSerializer.Serialize(new TimeTrackStickerPosition { X = x, Y = y }, JsonOptions));
         }
-        catch
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException)
         {
-            // best-effort
+            // The position is a convenience; failing to store it must never disturb the sticker.
         }
     }
 }

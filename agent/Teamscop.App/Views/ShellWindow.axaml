@@ -1,0 +1,116 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="clr-namespace:Teamscop.App.ViewModels"
+        xmlns:controls="clr-namespace:Teamscop.App.Controls"
+        xmlns:views="clr-namespace:Teamscop.App.Views"
+        x:Class="Teamscop.App.Views.ShellWindow"
+        x:DataType="vm:ShellViewModel"
+        Title="{Binding WindowTitle}"
+        Icon="/Assets/teamscop-icon.ico"
+        Width="1180" Height="720"
+        MinWidth="880" MinHeight="560"
+        WindowStartupLocation="CenterScreen"
+        CanResize="True"
+        SystemDecorations="None"
+        ExtendClientAreaToDecorationsHint="True"
+        ExtendClientAreaChromeHints="NoChrome"
+        Background="{StaticResource TsBackgroundBrush}"
+        BorderBrush="{StaticResource TsAccentBrush}"
+        BorderThickness="1">
+
+  <!-- Route content is chosen by ViewModel type, not by a stack of overlapping IsVisible panels. -->
+  <Window.DataTemplates>
+    <DataTemplate DataType="{x:Type vm:LoginViewModel}">
+      <views:LoginView />
+    </DataTemplate>
+    <DataTemplate DataType="{x:Type vm:EnrollViewModel}">
+      <views:EnrollView />
+    </DataTemplate>
+    <DataTemplate DataType="{x:Type vm:StaffDetailViewModel}">
+      <views:StaffDetailView />
+    </DataTemplate>
+    <DataTemplate DataType="{x:Type vm:LeaderboardViewModel}">
+      <views:LeaderboardView />
+    </DataTemplate>
+    <DataTemplate DataType="{x:Type vm:TeamsBoardViewModel}">
+      <views:TeamsBoardView />
+    </DataTemplate>
+    <DataTemplate DataType="{x:Type vm:TotpCodesViewModel}">
+      <views:TotpCodesView />
+    </DataTemplate>
+    <DataTemplate DataType="{x:Type vm:SettingsViewModel}">
+      <views:SettingsView />
+    </DataTemplate>
+    <DataTemplate DataType="{x:Type vm:NoAccessViewModel}">
+      <views:NoAccessView />
+    </DataTemplate>
+    <DataTemplate DataType="{x:Type vm:ScreenshotViewerViewModel}">
+      <views:ScreenshotViewerView />
+    </DataTemplate>
+  </Window.DataTemplates>
+
+  <Panel>
+  <DockPanel>
+    <controls:TsTitleBar DockPanel.Dock="Top" Title="{Binding WindowTitle}" />
+
+    <Grid ColumnDefinitions="Auto,Auto,*">
+      <views:ShellNavView Grid.Column="0" IsVisible="{Binding ShowNav}" />
+
+      <views:StaffSectionNavView Grid.Column="1" DataContext="{Binding StaffDetail}" />
+
+      <Panel Grid.Column="2" Background="{StaticResource TsBackgroundBrush}">
+        <ContentControl Content="{Binding CurrentContent}" />
+
+        <StackPanel IsVisible="{Binding IsResolving}"
+                    Spacing="14"
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Center">
+          <controls:TsSpinner HorizontalAlignment="Center" />
+          <TextBlock Text="Loading your workspace…"
+                     Classes="ts-muted"
+                     FontSize="13"
+                     HorizontalAlignment="Center" />
+        </StackPanel>
+
+        <!-- Not a push alert (§12.3): the app telling the operator about itself, in place. -->
+        <Border VerticalAlignment="Bottom"
+                IsVisible="{Binding ShowProblem}"
+                Background="{StaticResource TsSurfaceBrush}"
+                BorderBrush="{StaticResource TsAccentBrush}"
+                BorderThickness="0,1,0,0"
+                Padding="20,10">
+          <Grid ColumnDefinitions="*,Auto">
+            <StackPanel Spacing="2" VerticalAlignment="Center">
+              <TextBlock Text="{Binding ProblemMessage}"
+                         IsVisible="{Binding ShowProblemMessage}"
+                         FontSize="13"
+                         TextWrapping="Wrap"
+                         Foreground="{StaticResource TsTextMutedBrush}" />
+              <TextBlock Text="{Binding DiagnosticsLine}"
+                         IsVisible="{Binding ShowDiagnostics}"
+                         FontSize="11"
+                         TextWrapping="Wrap"
+                         Classes="ts-muted" />
+            </StackPanel>
+            <Button Grid.Column="1"
+                    Classes="ts-toolbar"
+                    Content="Retry"
+                    MinWidth="90"
+                    Margin="16,0,0,0"
+                    IsVisible="{Binding ShowProblemMessage}"
+                    Command="{Binding RetryCommand}" />
+          </Grid>
+        </Border>
+      </Panel>
+    </Grid>
+  </DockPanel>
+
+    <!-- §3.4 — the screenshot viewer is a real full-screen overlay: it covers the nav, the section
+         nav and the title bar, so reading text on a captured screen is not cramped into the content
+         column. Esc or Back closes it. A ContentControl keeps the shell as its DataContext, so the
+         visibility flag resolves against the shell while the viewer VM drives the view. -->
+    <ContentControl Content="{Binding ScreenshotViewer}"
+                    IsVisible="{Binding IsScreenshotViewerOpen}"
+                    ZIndex="100" />
+  </Panel>
+</Window>

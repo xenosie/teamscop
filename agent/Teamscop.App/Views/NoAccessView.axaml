@@ -1,0 +1,24 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:Teamscop.App.ViewModels"
+             x:Class="Teamscop.App.Views.NoAccessView"
+             x:DataType="vm:NoAccessViewModel">
+
+  <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="12" Margin="40">
+    <TextBlock Text="No workspace access"
+               FontSize="20"
+               FontWeight="SemiBold"
+               Foreground="{StaticResource TsTextBrush}"
+               HorizontalAlignment="Center" />
+    <TextBlock Text="You are signed in as staff, but you are not a team leader and have no policeman packages. Ask your admin to assign a role — this screen becomes your workspace the moment they do."
+               Classes="ts-muted"
+               FontSize="13"
+               TextWrapping="Wrap"
+               TextAlignment="Center"
+               MaxWidth="420" />
+    <TextBlock Text="{Binding UserLine}"
+               Classes="ts-muted"
+               FontSize="12"
+               HorizontalAlignment="Center" />
+  </StackPanel>
+</UserControl>

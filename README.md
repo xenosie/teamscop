@@ -1,101 +1,93 @@
 # Teamscop
 
-Windows monitoring agent + ASP.NET Core API + Avalonia admin desktop.
+Windows employee-monitoring product for small companies: a Windows agent that records work
+hours, screenshots and browsing history; an ASP.NET Core API; and an Avalonia desktop console
+for the people who review that data.
 
-**Status matrix:** [`docs/STATUS.md`](docs/STATUS.md) (what is Spec / Engine / API / App / Tests).
+**Documentation is in [`docs/`](docs/). Start with [01-PRODUCT](docs/01-PRODUCT.md).**
 
-## Stack
+---
 
-- Avalonia admin UI: `agent/Teamscop.App`
-- Auth engine: `agent/Teamscop.Engine.Auth`
-- Lifecycle engine: `agent/Teamscop.Engine.Lifecycle`
-- Sync engine: `agent/Teamscop.Engine.Sync`
-- Tracking engine: `agent/Teamscop.Engine.Tracking` (time/screenshot/Chrome + secure vault)
-- USB engine: `agent/Teamscop.Engine.Usb` (mass-storage block + session TOTP unlock)
-- Staff Windows Service: `agent/Teamscop.StaffService`
-- Admin host (console): `agent/Teamscop.AdminHost` (TOTP, teams, police CLI)
-- USB approval sticker: `agent/Teamscop.UsbApproval`
-- Uninstall TOTP guard: `agent/Teamscop.UninstallGuard`
-- API: `backend/Teamscop.Api` (.NET 8 + PostgreSQL)
-- Deploy: `deploy/`
-- Phases: [PHASE1](docs/PHASE1_AUTH.md) · [2](docs/PHASE2_LIFECYCLE.md) · [3](docs/PHASE3_SYNC.md) · [4](docs/PHASE4_TRACKING.md) · [5](docs/PHASE5_BUSINESS_TIME.md) · [6](docs/PHASE6_USB.md) · [7](docs/PHASE7_TEAMS.md) · [8](docs/PHASE8_AUTHORITIES.md) · [9 App history](docs/PHASE9_APP_HISTORY.md)
-- UI preview (VPS/CRD): [`docs/UI_DEV_PREVIEW.md`](docs/UI_DEV_PREVIEW.md)
+## Documentation map
 
-## Auth model
+| Doc | What it covers |
+|---|---|
+| [01-PRODUCT](docs/01-PRODUCT.md) | What Teamscop is, who uses it, core concepts, glossary |
+| [02-REQUIREMENTS](docs/02-REQUIREMENTS.md) | **Source of truth.** Owner-confirmed decisions. Where code disagrees, code is wrong |
+| [03-ARCHITECTURE](docs/03-ARCHITECTURE.md) | Process topology, projects, data flow, end-to-end paths |
+| [04-DATA-MODEL](docs/04-DATA-MODEL.md) | Entities, storage layout, indexes, retention |
+| [05-API](docs/05-API.md) | HTTP endpoint and SignalR reference |
+| [06-AGENT](docs/06-AGENT.md) | Windows agent internals: capture, vault, sync, USB, uninstall |
+| [07-DESKTOP-APP](docs/07-DESKTOP-APP.md) | Desktop UI specification and screen-by-screen behaviour |
+| [08-SECURITY](docs/08-SECURITY.md) | Threat model, credentials, what is and isn't defended |
+| [09-INSTALL-DEPLOY](docs/09-INSTALL-DEPLOY.md) | Windows installer, server deployment, CI |
+| [10-GAP-ANALYSIS](docs/10-GAP-ANALYSIS.md) | Where the code diverges from the spec, and the work plan |
 
-See [`docs/PHASE1_AUTH.md`](docs/PHASE1_AUTH.md).
+**02-REQUIREMENTS is the source of truth**; where the code disagrees with it, the code is wrong.
+Every other doc describes **the code as it actually is**, and flags remaining divergence with a ⚠️
+callout. [10-GAP-ANALYSIS](docs/10-GAP-ANALYSIS.md) is the consolidated list of what is still open,
+plus the reconstruction log.
 
-- Identity = hardware-bound `deviceKey` (not email)
-- Admin signup creates a company and returns an offline encrypted `companyToken` (`TS1.…`)
-- Staff signup requires that company token; server re-validates it
+Current state: **0 errors, 0 warnings, 157 tests (154 passing, 3 Windows-only skipped), model in sync with migrations.**
+
+---
+
+## Repository layout
+
+```
+backend/
+  Teamscop.Api/            ASP.NET Core 8 minimal API + PostgreSQL + SignalR hub
+  Teamscop.Api.Tests/      xunit suite (also covers the agent engine libraries)
+agent/
+  Teamscop.Engine.Auth/        device key, company token codec, auth client
+  Teamscop.Engine.Lifecycle/   roles, authority packages, TOTP, local state
+  Teamscop.Engine.Sync/        outbox queue, batch upload, connectivity
+  Teamscop.Engine.Tracking/    time track, screen capture, Chrome, vault, pipe
+  Teamscop.Engine.Usb/         removable-storage policy and approval flow
+  Teamscop.StaffService/       Windows Service (LocalSystem) — the always-on agent
+  Teamscop.SessionHelper/      per-session helper; the only process that can capture the screen
+  Teamscop.App/                Avalonia desktop app (admin / leader / policeman / staff sticker)
+  Teamscop.UsbApproval/        USB approval sticker
+  Teamscop.UninstallGuard/     uninstall approval sticker
+  Teamscop.Setup/              Teamscop_setup.exe — single-file installer/uninstaller
+deploy/
+  install.sh                   Linux/VPS provisioning for the API
+  nginx.teamscop.conf          reverse proxy config
+  teamscop-api.service         systemd unit
+  pg-backup.sh                 daily pg_dump, driven by a systemd timer
+  windows/build-setup.sh       builds Teamscop_setup.exe — the only file left in deploy/windows
+```
 
 ## Local development
 
 ```bash
 export PATH="$HOME/.dotnet:$PATH"
 cd /home/ubuntu/Teamscop
-dotnet test
-dotnet run --project backend/Teamscop.Api
+
+dotnet build Teamscop.sln -c Release          # must stay 0 errors AND 0 warnings
+ASPNETCORE_ENVIRONMENT=Development dotnet test backend/Teamscop.Api.Tests -c Release
+dotnet run --project backend/Teamscop.Api      # API on http://localhost:5080
 ```
 
-Development uses an in-memory database (`appsettings.Development.json`).
+Warnings are fixed, never suppressed — no `#pragma`, no `NoWarn`.
 
-## CI / E2E on GitHub
+Development uses an in-memory database (`"Default": "InMemory"` in
+`appsettings.Development.json`). Be aware this hides persistence bugs — unique indexes are not
+enforced and `ExecuteDeleteAsync` is unsupported. Seven `[PostgresFact]` tests cover that machinery
+against real PostgreSQL and skip **silently** when none is reachable; see
+[09-INSTALL-DEPLOY](docs/09-INSTALL-DEPLOY.md) for how to provision the `teamscop_test` role.
 
-Workflow: [`.github/workflows/e2e.yml`](.github/workflows/e2e.yml)
+**Never point tooling at the live `teamscop` role or database.** Doing so has already taken
+production down once. Create a throwaway role and database instead, and note that `GET /health` is a
+static literal that does not touch the database — it is useless as a liveness check. See
+[08-SECURITY](docs/08-SECURITY.md).
 
-| Job | Runner | What it covers |
-|---|---|---|
-| `linux-api-e2e` | ubuntu-latest | Full `dotnet test` (unit + end-to-end API path) |
-| `windows-agent-build` | windows-latest | Build Staff/Admin/Uninstall/USB + re-run tests on Windows |
-| `live-smoke` | ubuntu-latest | Hits `https://teamscop.com` (manual dispatch or push to `main`) |
+**Never edit or delete an existing migration.** New schema is a new migration plus an updated
+`AppDbContextModelSnapshot.cs`; several migrations are already applied in production and are
+permanent history. See [04-DATA-MODEL](docs/04-DATA-MODEL.md).
 
-```bash
-# local equivalent of CI tests
-ASPNETCORE_ENVIRONMENT=Development dotnet test -c Release
-```
+## Production
 
-## Production deploy (this VPS)
-
-```bash
-sudo bash deploy/install.sh
-```
-
-Secrets are written once to `/etc/teamscop/api.env`.
-
-Live endpoints:
-- Health: `https://teamscop.com/health`
-- Auth API: `https://teamscop.com/api/auth/...`
-
-The Windows agent must use the same `CompanyToken__Key` (base64 32-byte AES key) as the API for offline company-token decrypt.
-
-## API
-
-- `POST /api/auth/admin/signup` (multipart: deviceKey, username, password, avatar?)
-- `POST /api/auth/staff/signup` (multipart: deviceKey, username, password, companyToken, avatar?)
-- `POST /api/auth/login` (JSON: deviceKey, password)
-- `GET /api/auth/me` (Bearer)
-- `POST /api/auth/company-token/reveal` (Admin Bearer)
-- `POST /api/lifecycle/totp/enroll` (Admin Bearer, `{ staffUserId }`) — per-staff TOTP for USB + uninstall
-- `GET /api/lifecycle/totp/staff` (Admin, or `usb_approval` / `uninstall_approval`)
-- `GET /api/lifecycle/totp/status/{staffUserId}` (Admin, or approval packages)
-- `GET /api/lifecycle/totp/code/{staffUserId}` (Admin, or `usb_approval` / `uninstall_approval`) — current 6-digit code
-- `POST /api/lifecycle/uninstall/verify` — staff deviceKey + TOTP → uninstall ticket
-- `POST /api/lifecycle/uninstall/consume` — consume ticket during MSI uninstall
-- `POST /api/lifecycle/usb/verify` — staff deviceKey + TOTP → USB session ticket
-- `POST /api/lifecycle/usb/consume` — consume USB session ticket
-- `POST /api/lifecycle/heartbeat` (Bearer)
-- `POST /api/ingest/batch` (Bearer) — durable agent event push
-- `GET /api/tracking/config/me` (Staff Bearer)
-- `PUT /api/tracking/config/{staffUserId}` (Admin Bearer) — quality/period; SignalR push to staff
-- Hub: `/hubs/config` — `TrackingConfigUpdated`, `BusinessTimeUpdated`, `OrgStructureUpdated`, `AuthoritiesUpdated`, `PolicemenUpdated` (JWT via `Authorization` or `?access_token=`)
-- `GET /api/business-time/me` (Bearer)
-- `POST /api/business-time/declare` (Admin Bearer) — absolute company sync clock
-- `GET /api/business-time/now` (Bearer)
-- `GET /api/org/structure` (Admin or `team_management`) — full teams tree
-- `GET /api/org/me` (Bearer) — my team placement
-- `POST/PUT/DELETE /api/teams…` (Admin or `team_management`)
-- `GET /api/tracking/staff` (Admin / policeman company-wide; team leader → members only)
-- `GET /api/tracking/events?staffUserId=` (filtered by authority packages)
-- `GET/PUT/DELETE /api/police…` — policemen + authority packages
-- `GET /health`
+The API runs on a VPS at `https://teamscop.com` behind nginx, deployed with
+`sudo bash deploy/install.sh`. Secrets live in `/etc/teamscop/api.env`.
+See [09-INSTALL-DEPLOY](docs/09-INSTALL-DEPLOY.md).

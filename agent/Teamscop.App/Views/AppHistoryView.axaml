@@ -1,0 +1,90 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:Teamscop.App.ViewModels"
+             x:Class="Teamscop.App.Views.AppHistoryView"
+             x:DataType="vm:AppHistoryViewModel">
+
+  <DockPanel LastChildFill="True">
+    <StackPanel DockPanel.Dock="Top" Spacing="4" Margin="0,0,0,16">
+      <TextBlock Text="App history"
+                 FontSize="22"
+                 FontWeight="SemiBold"
+                 Foreground="{StaticResource TsTextBrush}" />
+      <TextBlock Text="Lifecycle history: registration, power off, USB, uninstall, and app broken."
+                 FontSize="13"
+                 Foreground="{StaticResource TsTextMutedBrush}" />
+    </StackPanel>
+
+    <Panel>
+      <TextBlock Text="{Binding ErrorMessage}"
+                 IsVisible="{Binding ShowError}"
+                 Foreground="#B91C1C"
+                 FontSize="13"
+                 TextWrapping="Wrap"
+                 VerticalAlignment="Top" />
+      <TextBlock Text="{Binding EmptyMessage}"
+                 IsVisible="{Binding ShowEmpty}"
+                 Foreground="{StaticResource TsTextMutedBrush}"
+                 FontSize="13"
+                 VerticalAlignment="Top" />
+      <TextBlock Text="Loading…"
+                 IsVisible="{Binding IsLoading}"
+                 Foreground="{StaticResource TsTextMutedBrush}"
+                 FontSize="13"
+                 VerticalAlignment="Top" />
+
+      <DockPanel IsVisible="{Binding HasItems}" LastChildFill="True">
+        <!-- Lifecycle rows accumulate for the life of the machine: a page at a time (A14 / §15.1) -->
+        <StackPanel DockPanel.Dock="Bottom"
+                    Orientation="Horizontal"
+                    Spacing="12"
+                    Margin="0,8,0,0"
+                    IsVisible="{Binding IsPaged}">
+          <TextBlock Text="{Binding PageLabel}"
+                     Foreground="{StaticResource TsTextMutedBrush}"
+                     FontSize="12"
+                     VerticalAlignment="Center" />
+          <Button Classes="ts-link"
+                  FontSize="12"
+                  Content="Show 25 more"
+                  IsVisible="{Binding HasMore}"
+                  Command="{Binding ShowMoreCommand}" />
+          <Button Classes="ts-link"
+                  FontSize="12"
+                  Content="Show all"
+                  IsVisible="{Binding HasMore}"
+                  Command="{Binding ShowAllCommand}" />
+        </StackPanel>
+
+        <!-- A ListBox purely for its VirtualizingStackPanel; selection is meaningless here. -->
+        <ListBox Classes="ts-plain"
+                 ItemsSource="{Binding Items}"
+                 SelectionMode="Single"
+                 ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+          <ListBox.ItemTemplate>
+            <DataTemplate x:DataType="vm:AppHistoryRowViewModel">
+              <Grid ColumnDefinitions="140,*" Margin="0,0,0,14">
+                <TextBlock Grid.Column="0"
+                           Text="{Binding TimeLabel}"
+                           FontSize="12"
+                           Foreground="{StaticResource TsTextMutedBrush}"
+                           VerticalAlignment="Top"
+                           Margin="0,2,16,0" />
+                <StackPanel Grid.Column="1" Spacing="2">
+                  <TextBlock Text="{Binding Title}"
+                             FontSize="14"
+                             FontWeight="SemiBold"
+                             Foreground="{StaticResource TsTextBrush}" />
+                  <TextBlock Text="{Binding Detail}"
+                             FontSize="13"
+                             TextWrapping="Wrap"
+                             Foreground="{StaticResource TsTextMutedBrush}" />
+                </StackPanel>
+              </Grid>
+            </DataTemplate>
+          </ListBox.ItemTemplate>
+        </ListBox>
+      </DockPanel>
+    </Panel>
+  </DockPanel>
+</UserControl>

@@ -89,6 +89,44 @@ public class AuthFlowTests : IClassFixture<WebApplicationFactory<Program>>
     }
 
     [Fact]
+    public async Task PasswordChange_ThenLoginWithNewPassword_Succeeds()
+    {
+        var client = _factory.CreateClient();
+        var (device, token) = await SignupAdminAsync(client, "PwChange Co");
+
+        var change = await client.SendAsync(Authed(HttpMethod.Post, "/api/auth/password/change", token,
+            new { currentPassword = "password123", newPassword = "password456" }));
+        Assert.Equal(HttpStatusCode.OK, change.StatusCode);
+
+        var oldLogin = await client.PostAsJsonAsync("/api/auth/login",
+            new { deviceKey = device, password = "password123" });
+        Assert.Equal(HttpStatusCode.Unauthorized, oldLogin.StatusCode);
+
+        var newLogin = await client.PostAsJsonAsync("/api/auth/login",
+            new { deviceKey = device, password = "password456" });
+        Assert.Equal(HttpStatusCode.OK, newLogin.StatusCode);
+    }
+
+    /// <summary>
+    /// §3.3: no token revocation and no forced logout. A password change must NOT
+    /// invalidate an outstanding token — that is the specified behaviour, not an oversight.
+    /// </summary>
+    [Fact]
+    public async Task PasswordChange_DoesNotInvalidateExistingToken()
+    {
+        var client = _factory.CreateClient();
+        var (_, token) = await SignupAdminAsync(client, "NoRevoke Co");
+
+        var change = await client.SendAsync(Authed(HttpMethod.Post, "/api/auth/password/change", token,
+            new { currentPassword = "password123", newPassword = "password456" }));
+        Assert.Equal(HttpStatusCode.OK, change.StatusCode);
+
+        using var me = new HttpRequestMessage(HttpMethod.Get, "/api/auth/me");
+        me.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        Assert.Equal(HttpStatusCode.OK, (await client.SendAsync(me)).StatusCode);
+    }
+
+    [Fact]
     public async Task StaffSignup_WithoutToken_Fails()
     {
         var client = _factory.CreateClient();
@@ -103,5 +141,32 @@ public class AuthFlowTests : IClassFixture<WebApplicationFactory<Program>>
 
         var resp = await client.PostAsync("/api/auth/staff/signup", form);
         Assert.Equal(HttpStatusCode.BadRequest, resp.StatusCode);
+    }
+
+    private static async Task<(string Device, string Token)> SignupAdminAsync(HttpClient client, string name)
+    {
+        var device = (Guid.NewGuid().ToString("N") + Guid.NewGuid().ToString("N")).ToLowerInvariant();
+        using var form = new MultipartFormDataContent
+        {
+            { new StringContent(device), "deviceKey" },
+            { new StringContent(name), "username" },
+            { new StringContent("password123"), "password" }
+        };
+        var resp = await client.PostAsync("/api/auth/admin/signup", form);
+        resp.EnsureSuccessStatusCode();
+        using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync());
+        return (device, doc.RootElement.GetProperty("accessToken").GetString()!);
+    }
+
+    private static HttpRequestMessage Authed(HttpMethod method, string url, string token, object? body = null)
+    {
+        var req = new HttpRequestMessage(method, url);
+        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        if (body is not null)
+        {
+            req.Content = JsonContent.Create(body);
+        }
+
+        return req;
     }
 }

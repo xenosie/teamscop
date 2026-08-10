@@ -12,7 +12,12 @@ public sealed class ConfigRealtimeClient : IAsyncDisposable
     private static readonly JsonSerializerOptions JsonOptions = new() { PropertyNameCaseInsensitive = true };
 
     private readonly string _baseUrl;
+    private readonly SemaphoreSlim _connectGate = new(1, 1);
+    private readonly TimeSpan _reconnectDelay = TimeSpan.FromSeconds(30);
     private HubConnection? _connection;
+    private string? _accessToken;
+    private CancellationToken _lifetime;
+    private volatile bool _disposed;
     private StaffTrackingConfig _config = new();
     private BusinessClockConfig _businessTime = new();
     private OrgStructureDto? _org;
@@ -22,9 +27,18 @@ public sealed class ConfigRealtimeClient : IAsyncDisposable
     public event Action<StaffTrackingConfig>? ConfigChanged;
     public event Action<BusinessClockConfig>? BusinessTimeChanged;
     public event Action<OrgStructureDto>? OrgStructureChanged;
+
+    /// <summary>
+    /// Defect 3 — somebody joined the company, so whatever roster this caller is allowed to see has
+    /// changed. Carried on the company-wide group and deliberately contentless: a team leader and an
+    /// approval-only policeman are outside the management group and must never receive the org
+    /// chart, but they do have a roster of their own to re-read. Whatever they then fetch is
+    /// re-scoped server-side, so this message can never widen anybody's reach.
+    /// </summary>
+    public event Action? StaffRosterChanged;
     public event Action<EffectiveAuthoritiesDto>? AuthoritiesChanged;
     public event Action<IReadOnlyList<PolicemanDto>>? PolicemenChanged;
-    /// <summary>Fired after SignalR automatic reconnect — callers should re-pull business time.</summary>
+    /// <summary>Fired after any reconnect (SignalR automatic or our own) — callers should re-pull.</summary>
     public event Func<Task>? ReconnectedAsync;
 
     public ConfigRealtimeClient(string baseUrl)
@@ -54,53 +68,141 @@ public sealed class ConfigRealtimeClient : IAsyncDisposable
 
     public async Task StartAsync(string accessToken, CancellationToken cancellationToken = default)
     {
-        _connection = new HubConnectionBuilder()
+        _accessToken = accessToken;
+        _lifetime = cancellationToken;
+        await ConnectAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    private HubConnection BuildConnection()
+    {
+        var token = _accessToken;
+        var connection = new HubConnectionBuilder()
             .WithUrl($"{_baseUrl}/hubs/config", options =>
             {
-                options.AccessTokenProvider = () => Task.FromResult<string?>(accessToken);
+                options.AccessTokenProvider = () => Task.FromResult<string?>(token);
             })
             .WithAutomaticReconnect()
             .Build();
 
-        _connection.On<StaffTrackingConfig>("TrackingConfigUpdated", cfg =>
+        connection.On<StaffTrackingConfig>("TrackingConfigUpdated", cfg =>
         {
             lock (_gate) _config = cfg;
             ConfigChanged?.Invoke(cfg);
         });
 
-        _connection.On<BusinessClockConfig>("BusinessTimeUpdated", cfg =>
+        connection.On<BusinessClockConfig>("BusinessTimeUpdated", cfg =>
         {
             lock (_gate) _businessTime = cfg;
             BusinessTimeChanged?.Invoke(cfg);
         });
 
-        _connection.On<OrgStructureDto>("OrgStructureUpdated", org =>
+        connection.On<OrgStructureDto>("OrgStructureUpdated", org =>
         {
             lock (_gate) _org = org;
             OrgStructureChanged?.Invoke(org);
         });
 
-        _connection.On<EffectiveAuthoritiesDto>("AuthoritiesUpdated", auth =>
+        // The payload is {companyId, structureVersion} and nothing else; the app needs only the
+        // fact, so it is read as a JsonElement and discarded rather than modelled.
+        connection.On<JsonElement>("StaffRegistered", _ => StaffRosterChanged?.Invoke());
+
+        connection.On<EffectiveAuthoritiesDto>("AuthoritiesUpdated", auth =>
         {
             lock (_gate) _authorities = auth;
             AuthoritiesChanged?.Invoke(auth);
         });
 
-        _connection.On<List<PolicemanDto>>("PolicemenUpdated", list =>
+        connection.On<List<PolicemanDto>>("PolicemenUpdated", list =>
         {
             PolicemenChanged?.Invoke(list ?? []);
         });
 
-        _connection.Reconnected += async _ =>
-        {
-            var handler = ReconnectedAsync;
-            if (handler is not null)
-            {
-                await handler().ConfigureAwait(false);
-            }
-        };
+        connection.Reconnected += async _ => await RaiseReconnectedAsync().ConfigureAwait(false);
+        return connection;
+    }
 
-        await _connection.StartAsync(cancellationToken).ConfigureAwait(false);
+    /// <summary>
+    /// Builds a fresh hub connection, disposing the previous one first so a restart never leaks the
+    /// old WebSocket, then registers <see cref="OnConnectionClosedAsync"/> so a terminal close (after
+    /// SignalR's automatic-reconnect attempts are exhausted) restarts rather than dying forever.
+    /// </summary>
+    private async Task ConnectAsync(CancellationToken ct)
+    {
+        await _connectGate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            var previous = _connection;
+            _connection = null;
+            if (previous is not null)
+            {
+                previous.Closed -= OnConnectionClosedAsync;
+                await previous.DisposeAsync().ConfigureAwait(false);
+            }
+
+            var connection = BuildConnection();
+            connection.Closed += OnConnectionClosedAsync;
+            try
+            {
+                await connection.StartAsync(ct).ConfigureAwait(false);
+            }
+            catch
+            {
+                connection.Closed -= OnConnectionClosedAsync;
+                await connection.DisposeAsync().ConfigureAwait(false);
+                throw;
+            }
+
+            _connection = connection;
+        }
+        finally
+        {
+            _connectGate.Release();
+        }
+    }
+
+    private Task OnConnectionClosedAsync(Exception? error)
+    {
+        // Return immediately: the reconnect loop disposes the just-closed connection and would
+        // deadlock if it ran inside that connection's own Closed callback. Detach it instead.
+        if (!_disposed && !_lifetime.IsCancellationRequested)
+        {
+            _ = Task.Run(ReconnectLoopAsync);
+        }
+
+        return Task.CompletedTask;
+    }
+
+    private async Task ReconnectLoopAsync()
+    {
+        // WithAutomaticReconnect has already given up (default 4 attempts); take over and keep
+        // trying on the same cadence until the link returns or the agent shuts down.
+        while (!_disposed && !_lifetime.IsCancellationRequested)
+        {
+            try
+            {
+                await Task.Delay(_reconnectDelay, _lifetime).ConfigureAwait(false);
+                await ConnectAsync(_lifetime).ConfigureAwait(false);
+                await RaiseReconnectedAsync().ConfigureAwait(false);
+                return;
+            }
+            catch (OperationCanceledException)
+            {
+                return;
+            }
+            catch
+            {
+                // Server still unreachable — loop and retry.
+            }
+        }
+    }
+
+    private async Task RaiseReconnectedAsync()
+    {
+        var handler = ReconnectedAsync;
+        if (handler is not null)
+        {
+            await handler().ConfigureAwait(false);
+        }
     }
 
     public async Task<StaffTrackingConfig?> PullSnapshotAsync(HttpClient http, string accessToken, CancellationToken ct = default)
@@ -182,9 +284,16 @@ public sealed class ConfigRealtimeClient : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
-        if (_connection is not null)
+        _disposed = true;
+        var connection = _connection;
+        _connection = null;
+        if (connection is not null)
         {
-            await _connection.DisposeAsync().ConfigureAwait(false);
+            // Detach first so disposing does not trip the reconnect loop.
+            connection.Closed -= OnConnectionClosedAsync;
+            await connection.DisposeAsync().ConfigureAwait(false);
         }
+
+        _connectGate.Dispose();
     }
 }

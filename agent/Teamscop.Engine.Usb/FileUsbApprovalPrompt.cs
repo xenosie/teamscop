@@ -1,14 +1,22 @@
 using System.Diagnostics;
 using System.Text.Json;
+using Teamscop.Engine.Lifecycle;
 
 namespace Teamscop.Engine.Usb;
 
 /// <summary>
-/// Launches Teamscop.UsbApproval sticker helper and waits for a response file.
-/// Falls back to console sticker when helper exe is missing (dev/CI).
+/// Launches the Teamscop.UsbApproval sticker and waits for its response file.
+///
+/// The sticker must appear on the employee's desktop, and the process asking for it is a
+/// LocalSystem service in session 0 — so the launch goes through
+/// <see cref="InteractiveProcessLauncher"/> first and only falls back to a plain
+/// <see cref="Process.Start"/> when that is unavailable (developer run, no console session).
 /// </summary>
 public sealed class FileUsbApprovalPrompt : IUsbApprovalPrompt
 {
+    /// <summary>A sticker nobody answers must not hold the approval queue forever.</summary>
+    private static readonly TimeSpan PromptTimeout = TimeSpan.FromMinutes(5);
+
     private static readonly JsonSerializerOptions Json = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
@@ -38,33 +46,23 @@ public sealed class FileUsbApprovalPrompt : IUsbApprovalPrompt
                 File.Delete(respPath);
             }
 
-            if (!string.IsNullOrWhiteSpace(_helperExe) && File.Exists(_helperExe))
+            if (string.IsNullOrWhiteSpace(_helperExe) || !File.Exists(_helperExe))
             {
-                using var proc = Process.Start(new ProcessStartInfo
-                {
-                    FileName = _helperExe,
-                    Arguments = $"--request=\"{reqPath}\" --response=\"{respPath}\"",
-                    UseShellExecute = false,
-                    CreateNoWindow = false
-                });
-                if (proc is not null)
-                {
-                    await proc.WaitForExitAsync(ct).ConfigureAwait(false);
-                }
+                return null;
+            }
+
+            var arguments = $"--request=\"{reqPath}\" --response=\"{respPath}\"";
+            if (OperatingSystem.IsWindows())
+            {
+                // No plain Process.Start fallback here on purpose. From a LocalSystem service that
+                // lands in session 0, where the sticker is invisible and would sit unanswered until
+                // the timeout, holding the approval queue. If there is no console session — at boot,
+                // before anyone has logged on — the stick simply stays blocked until it is replugged.
+                TryShowOnUserDesktop(_helperExe, arguments);
             }
             else
             {
-                // Console sticker fallback (dev / service without helper beside it)
-                Console.WriteLine();
-                Console.WriteLine("┌──────────────────────────────────────────┐");
-                Console.WriteLine("│  Teamscop — USB storage blocked          │");
-                Console.WriteLine("│  Enter admin 6-digit code to approve     │");
-                Console.WriteLine($"│  Device: {(request.Device.FriendlyName ?? request.Device.InstanceId),-30} │");
-                Console.WriteLine("└──────────────────────────────────────────┘");
-                Console.Write("TOTP code: ");
-                var code = Console.ReadLine()?.Trim();
-                var resp = new UsbApprovalResponse(request.RequestId, !string.IsNullOrWhiteSpace(code), code, null);
-                await File.WriteAllTextAsync(respPath, JsonSerializer.Serialize(resp, Json), ct).ConfigureAwait(false);
+                await RunInProcessSessionAsync(_helperExe, arguments, ct).ConfigureAwait(false);
             }
 
             if (!File.Exists(respPath))
@@ -88,6 +86,49 @@ public sealed class FileUsbApprovalPrompt : IUsbApprovalPrompt
         }
     }
 
+    private static bool TryShowOnUserDesktop(string exePath, string arguments)
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return false;
+        }
+
+        try
+        {
+            return InteractiveProcessLauncher.TryRunInActiveSession(exePath, arguments, PromptTimeout);
+        }
+        catch (Exception ex) when (ex is DllNotFoundException or EntryPointNotFoundException)
+        {
+            return false;
+        }
+    }
+
+    private static async Task RunInProcessSessionAsync(string exePath, string arguments, CancellationToken ct)
+    {
+        using var proc = Process.Start(new ProcessStartInfo
+        {
+            FileName = exePath,
+            Arguments = arguments,
+            UseShellExecute = false,
+            CreateNoWindow = false
+        });
+        if (proc is null)
+        {
+            return;
+        }
+
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        timeout.CancelAfter(PromptTimeout);
+        try
+        {
+            await proc.WaitForExitAsync(timeout.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            try { proc.Kill(entireProcessTree: true); } catch (InvalidOperationException) { /* already gone */ }
+        }
+    }
+
     private static string? FindHelper()
     {
         var baseDir = AppContext.BaseDirectory;
@@ -102,6 +143,16 @@ public sealed class FileUsbApprovalPrompt : IUsbApprovalPrompt
 
     private static void TryDelete(string path)
     {
-        try { if (File.Exists(path)) File.Delete(path); } catch { /* ignore */ }
+        try
+        {
+            if (File.Exists(path))
+            {
+                File.Delete(path);
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // Left behind; the next request uses a fresh id.
+        }
     }
 }

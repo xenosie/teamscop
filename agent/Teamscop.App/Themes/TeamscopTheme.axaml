@@ -16,6 +16,8 @@
   <Color x:Key="TsTextMuted">#64748B</Color>
   <Color x:Key="TsBorder">#2563EB</Color>
   <Color x:Key="TsBorderStrong">#2563EB</Color>
+  <!-- Hairline between rows of a table: the accent blue is far too loud repeated 25 times -->
+  <Color x:Key="TsDivider">#E2E8F0</Color>
 
   <SolidColorBrush x:Key="TsAccentBrush" Color="{StaticResource TsBlue600}" />
   <SolidColorBrush x:Key="TsAccentSoftBrush" Color="{StaticResource TsBlue100}" />
@@ -26,6 +28,8 @@
   <SolidColorBrush x:Key="TsTextMutedBrush" Color="{StaticResource TsTextMuted}" />
   <SolidColorBrush x:Key="TsBorderBrush" Color="{StaticResource TsBorder}" />
   <SolidColorBrush x:Key="TsBorderStrongBrush" Color="{StaticResource TsBorderStrong}" />
+  <SolidColorBrush x:Key="TsDividerBrush" Color="{StaticResource TsDivider}" />
+  <SolidColorBrush x:Key="TsBlue50Brush" Color="{StaticResource TsBlue50}" />
 
   <!-- Fluent expects Color (not Brush) for SystemAccentColor* keys -->
   <Color x:Key="SystemAccentColor">#2563EB</Color>
@@ -298,6 +302,72 @@
     </Style>
     <Style Selector="^:pressed">
       <Setter Property="Opacity" Value="0.75" />
+    </Style>
+  </ControlTheme>
+
+  <!-- Clickable stat tile — Today's overview; selected means "this tile filters the table" -->
+  <ControlTheme x:Key="TsStatTileButton" TargetType="Button">
+    <Setter Property="Background" Value="{StaticResource TsSurfaceBrush}" />
+    <Setter Property="Foreground" Value="{StaticResource TsTextBrush}" />
+    <Setter Property="BorderBrush" Value="{StaticResource TsBorderBrush}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="0" />
+    <Setter Property="Padding" Value="14,12" />
+    <Setter Property="FontFamily" Value="{StaticResource TsFont}" />
+    <Setter Property="Cursor" Value="Hand" />
+    <Setter Property="HorizontalAlignment" Value="Stretch" />
+    <Setter Property="Template">
+      <ControlTemplate>
+        <Border Background="{TemplateBinding Background}"
+                BorderBrush="{TemplateBinding BorderBrush}"
+                BorderThickness="{TemplateBinding BorderThickness}"
+                CornerRadius="0"
+                Padding="{TemplateBinding Padding}">
+          <ContentPresenter Content="{TemplateBinding Content}"
+                            ContentTemplate="{TemplateBinding ContentTemplate}"
+                            HorizontalContentAlignment="Left"
+                            VerticalContentAlignment="Center"
+                            TextBlock.Foreground="{TemplateBinding Foreground}" />
+        </Border>
+      </ControlTemplate>
+    </Setter>
+    <Style Selector="^:pointerover">
+      <Setter Property="Background" Value="{StaticResource TsBlue50Brush}" />
+    </Style>
+    <Style Selector="^.selected">
+      <Setter Property="Background" Value="{StaticResource TsAccentSoftBrush}" />
+      <Setter Property="BorderBrush" Value="{StaticResource TsAccentHoverBrush}" />
+    </Style>
+  </ControlTheme>
+
+  <!-- Table row — full width, content stretched, divider underneath -->
+  <ControlTheme x:Key="TsDataRowButton" TargetType="Button">
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="Foreground" Value="{StaticResource TsTextBrush}" />
+    <Setter Property="BorderBrush" Value="{StaticResource TsDividerBrush}" />
+    <Setter Property="BorderThickness" Value="0,0,0,1" />
+    <Setter Property="CornerRadius" Value="0" />
+    <Setter Property="Padding" Value="12,9" />
+    <Setter Property="FontFamily" Value="{StaticResource TsFont}" />
+    <Setter Property="Cursor" Value="Hand" />
+    <Setter Property="HorizontalAlignment" Value="Stretch" />
+    <Setter Property="Template">
+      <ControlTemplate>
+        <Border Background="{TemplateBinding Background}"
+                BorderBrush="{TemplateBinding BorderBrush}"
+                BorderThickness="{TemplateBinding BorderThickness}"
+                CornerRadius="0"
+                Padding="{TemplateBinding Padding}">
+          <ContentPresenter Content="{TemplateBinding Content}"
+                            ContentTemplate="{TemplateBinding ContentTemplate}"
+                            HorizontalContentAlignment="Stretch"
+                            VerticalContentAlignment="Center"
+                            TextBlock.Foreground="{TemplateBinding Foreground}" />
+        </Border>
+      </ControlTemplate>
+    </Setter>
+    <Style Selector="^:pointerover">
+      <Setter Property="Background" Value="{StaticResource TsSidebarHoverBrush}" />
     </Style>
   </ControlTheme>
 

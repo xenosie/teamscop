@@ -56,9 +56,9 @@
         <ScrollViewer Classes="ts-transparent-scroll"
                       IsVisible="{Binding HasItems}"
                       VerticalScrollBarVisibility="Auto">
-          <ItemsControl ItemsSource="{Binding Visits}">
-            <ItemsControl.ItemTemplate>
-              <DataTemplate x:DataType="vm:BrowsingVisitRowViewModel">
+          <ItemsControl ItemsSource="{Binding Rows}">
+            <ItemsControl.DataTemplates>
+              <DataTemplate DataType="{x:Type vm:BrowsingVisitRowViewModel}">
                 <Grid ColumnDefinitions="140,*" Margin="0,0,0,14">
                   <TextBlock Grid.Column="0"
                              Text="{Binding TimeLabel}"
@@ -78,7 +78,7 @@
                   </StackPanel>
                 </Grid>
               </DataTemplate>
-            </ItemsControl.ItemTemplate>
+            </ItemsControl.DataTemplates>
           </ItemsControl>
         </ScrollViewer>
       </Panel>

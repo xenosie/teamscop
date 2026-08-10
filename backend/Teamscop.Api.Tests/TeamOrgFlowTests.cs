@@ -47,22 +47,23 @@ public class TeamOrgFlowTests : IClassFixture<WebApplicationFactory<Program>>
             $"/api/tracking/events?staffUserId={memberId}&eventType=timetrack", leaderToken);
         Assert.Equal(HttpStatusCode.OK, (await _client.SendAsync(ttReq)).StatusCode);
 
+        // Screenshots ARE inherent to leading (team-scoped); browsing history is not.
         using var shotReq = Authed(HttpMethod.Get,
             $"/api/tracking/events?staffUserId={memberId}&eventType=screenshot_meta", leaderToken);
         Assert.Equal(HttpStatusCode.OK, (await _client.SendAsync(shotReq)).StatusCode);
 
         using var browseReq = Authed(HttpMethod.Get,
             $"/api/tracking/events?staffUserId={memberId}&eventType=browser_history", leaderToken);
-        Assert.Equal(HttpStatusCode.OK, (await _client.SendAsync(browseReq)).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await _client.SendAsync(browseReq)).StatusCode);
 
         // Never USB / app-history lifecycle without approval packages.
         using var usbReq = Authed(HttpMethod.Get,
             $"/api/tracking/events?staffUserId={memberId}&eventType=usb_event", leaderToken);
         Assert.Equal(HttpStatusCode.Forbidden, (await _client.SendAsync(usbReq)).StatusCode);
 
-        using var brokenReq = Authed(HttpMethod.Get,
-            $"/api/tracking/events?staffUserId={memberId}&eventType=app_broken", leaderToken);
-        Assert.Equal(HttpStatusCode.Forbidden, (await _client.SendAsync(brokenReq)).StatusCode);
+        using var powerOffReq = Authed(HttpMethod.Get,
+            $"/api/tracking/events?staffUserId={memberId}&eventType=power_off", leaderToken);
+        Assert.Equal(HttpStatusCode.Forbidden, (await _client.SendAsync(powerOffReq)).StatusCode);
 
         // Outside the team → forbidden.
         using var otherReq = Authed(HttpMethod.Get,
@@ -82,13 +83,14 @@ public class TeamOrgFlowTests : IClassFixture<WebApplicationFactory<Program>>
         var place = JsonDocument.Parse(await (await _client.SendAsync(placeReq)).Content.ReadAsStringAsync());
         Assert.Equal("leader", place.RootElement.GetProperty("placement").GetString());
 
-        // Inherent view packages appear in /api/police/me for leaders.
+        // The inherent view packages appear in /api/police/me for leaders — timetrack and
+        // screenshots; browsing history needs an explicit grant.
         using var meReq = Authed(HttpMethod.Get, "/api/police/me", leaderToken);
         var meDoc = JsonDocument.Parse(await (await _client.SendAsync(meReq)).Content.ReadAsStringAsync());
         var pkgs = meDoc.RootElement.GetProperty("packages").EnumerateArray().Select(p => p.GetString()).ToHashSet();
-        Assert.Contains("view_screenshot", pkgs);
         Assert.Contains("view_timetrack", pkgs);
-        Assert.Contains("view_browser_history", pkgs);
+        Assert.Contains("view_screenshot", pkgs);
+        Assert.DoesNotContain("view_browser_history", pkgs);
         Assert.DoesNotContain("usb_approval", pkgs);
         Assert.DoesNotContain("uninstall_approval", pkgs);
     }

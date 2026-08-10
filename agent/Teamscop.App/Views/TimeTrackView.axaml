@@ -1,7 +1,6 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="clr-namespace:Teamscop.App.ViewModels"
-             xmlns:views="clr-namespace:Teamscop.App.Views"
              x:Class="Teamscop.App.Views.TimeTrackView"
              x:DataType="vm:TimeTrackViewModel">
 
@@ -15,7 +14,6 @@
                  FontSize="13"
                  Foreground="{StaticResource TsTextMutedBrush}"
                  TextWrapping="Wrap" />
-      <views:ChainHealthBannerView DataContext="{Binding Chain}" Margin="0,4,0,0" />
     </StackPanel>
 
     <StackPanel Spacing="14">
@@ -39,7 +37,8 @@
                    FontWeight="SemiBold"
                    Foreground="{StaticResource TsTextBrush}" />
 
-        <!-- Timeline bar box: left/right ends = selected business period. -->
+        <!-- Timeline bar box: left/right ends = the selected business period (§2.5). The overlay
+             carries the "now" marker, positioned in the same frame as the segments. -->
         <Border Background="#F8FAFC"
                 BorderBrush="{StaticResource TsBorderBrush}"
                 BorderThickness="1"
@@ -47,7 +46,10 @@
                 Height="52"
                 ClipToBounds="True"
                 SizeChanged="OnBarSizeChanged">
-          <Grid Name="TimelineBar" />
+          <Panel>
+            <Grid Name="TimelineBar" />
+            <Canvas Name="NowOverlay" IsHitTestVisible="False" />
+          </Panel>
         </Border>
 
         <Grid ColumnDefinitions="*,*">
@@ -74,13 +76,9 @@
             <TextBlock Text="Rest" FontSize="12" Foreground="{StaticResource TsTextBrush}" />
             <TextBlock Text="{Binding RestSummary}" FontSize="12" Classes="ts-muted" />
           </StackPanel>
-          <StackPanel Orientation="Horizontal" Spacing="6">
-            <Border Width="14" Height="14"
-                    Background="Transparent"
-                    BorderBrush="{StaticResource TsBorderBrush}"
-                    BorderThickness="1" />
-            <TextBlock Text="No heartbeat" FontSize="12" Foreground="{StaticResource TsTextBrush}" />
-            <TextBlock Text="{Binding GapSummary}" FontSize="12" Classes="ts-muted" />
+          <StackPanel Orientation="Horizontal" Spacing="6" IsVisible="{Binding HasNowMarker}">
+            <Border Width="3" Height="14" Background="#0F172A" />
+            <TextBlock Text="{Binding NowLabel}" FontSize="12" Foreground="{StaticResource TsTextBrush}" />
           </StackPanel>
         </StackPanel>
       </StackPanel>

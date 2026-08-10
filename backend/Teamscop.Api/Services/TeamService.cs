@@ -1,10 +1,24 @@
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
+using Teamscop.Api.Audit;
 using Teamscop.Api.Data;
 using Teamscop.Api.Hubs;
+using Teamscop.Api.Services.Access;
 using Teamscop.Engine.Lifecycle;
+using Teamscop.Api.Errors;
 
 namespace Teamscop.Api.Services;
+
+/// <summary>
+/// The <c>StaffRegistered</c> push, carried on the company-wide group. Deliberately holds nothing
+/// but the company and the new structure version: every recipient re-reads its own roster through
+/// an endpoint that scopes the answer, so this message can never widen anyone's reach.
+/// </summary>
+public sealed class StaffRosterChangedDto
+{
+    public Guid CompanyId { get; set; }
+    public long StructureVersion { get; set; }
+}
 
 public sealed record CreateTeamRequest(string Name, Guid? LeaderUserId = null);
 public sealed record UpdateTeamRequest(string? Name, Guid? LeaderUserId = null, bool ClearLeader = false);
@@ -21,15 +35,33 @@ public interface ITeamService
     Task<TeamDto> SetMembersAsync(Guid adminUserId, Guid teamId, SetMembersRequest request, CancellationToken ct);
     Task<TeamDto> AddMemberAsync(Guid adminUserId, Guid teamId, Guid staffUserId, CancellationToken ct);
     Task<TeamDto> RemoveMemberAsync(Guid adminUserId, Guid teamId, Guid staffUserId, CancellationToken ct);
-    Task<bool> CanViewStaffTrackingAsync(Guid viewerId, Guid targetStaffId, CancellationToken ct);
     Task<IReadOnlyList<OrgStaffDto>> ListVisibleStaffAsync(Guid viewerId, CancellationToken ct);
+
+    /// <summary>
+    /// The roster changed without any team edit — a new machine enrolled (§2.3). Bumps the
+    /// structure version and pushes it, so an admin who already has the app open discovers the new
+    /// employee immediately instead of on the next cold start.
+    ///
+    /// Takes a company rather than a requester on purpose: enrolment has no approver to authorize
+    /// against. Nothing privileged widens — the org chart still goes only to the management group,
+    /// and everyone else gets a contentless "re-read your own scoped roster" signal.
+    /// </summary>
+    Task NotifyRosterChangedAsync(Guid companyId, CancellationToken ct);
 }
 
 public sealed class TeamService(
     AppDbContext db,
     IHubContext<ConfigHub> hub,
-    IAuthorityService authorities) : ITeamService
+    IAccessPolicy access,
+    IAvatarAccess avatars,
+    IAuditLog audit,
+    ILogger<TeamService> logger) : ITeamService
 {
+    private static readonly IReadOnlySet<string> NoPackages =
+        new HashSet<string>(StringComparer.Ordinal);
+
+    private static readonly IReadOnlySet<Guid> NoMembers = new HashSet<Guid>();
+
     public async Task<OrgStructureDto> GetCompanyStructureAsync(Guid requesterId, CancellationToken ct)
     {
         var user = await RequireTeamManagerAsync(requesterId, ct);
@@ -68,20 +100,30 @@ public sealed class TeamService(
             };
         }
 
-        var membership = await db.TeamMembers.AsNoTracking()
-            .Include(m => m.Team).ThenInclude(t => t.Leader)
-            .Include(m => m.Team).ThenInclude(t => t.Members).ThenInclude(x => x.StaffUser)
-            .FirstOrDefaultAsync(m => m.StaffUserId == userId, ct);
-        if (membership is not null)
+        // Two queries, not one Include chain. TeamMember → Team → Members walks back to
+        // TeamMember, and EF rejects a cycle in a no-tracking query at COMPILATION time — before
+        // the predicate runs — so GET /api/org/me answered 400 for every staff member and every
+        // leader, in or out of a team. Admins never saw it because they return above. The desktop
+        // feeds this into IAuthorityState.Apply, so a team leader could never be told they lead a
+        // team (§4.2, §4.6). Same acyclic shape as GetTeamDtoAsync.
+        var memberTeamId = await db.TeamMembers.AsNoTracking()
+            .Where(m => m.StaffUserId == userId)
+            .Select(m => (Guid?)m.TeamId)
+            .FirstOrDefaultAsync(ct);
+        if (memberTeamId is Guid teamId)
         {
+            var team = await db.Teams.AsNoTracking()
+                .Include(t => t.Leader)
+                .Include(t => t.Members).ThenInclude(x => x.StaffUser)
+                .FirstAsync(t => t.Id == teamId, ct);
             return new MyOrgPlacementDto
             {
                 StructureVersion = company.OrgStructureVersion,
                 IsTeamLeader = false,
-                TeamId = membership.TeamId,
-                TeamName = membership.Team.Name,
+                TeamId = team.Id,
+                TeamName = team.Name,
                 Placement = "member",
-                Team = ToTeamDto(membership.Team)
+                Team = ToTeamDto(team)
             };
         }
 
@@ -103,7 +145,7 @@ public sealed class TeamService(
         if (request.LeaderUserId is Guid requestedLeader)
         {
             var leader = await RequireCompanyStaffAsync(admin.CompanyId, requestedLeader, ct);
-            await ClearMembershipAsync(leader.Id, ct);
+            await ClearMembershipAsync(leader.Id, excludeTeamId: null, ct);
             await ClearLeadershipExceptAsync(leader.Id, excludeTeamId: null, ct);
             leaderId = leader.Id;
         }
@@ -119,6 +161,8 @@ public sealed class TeamService(
         };
         db.Teams.Add(team);
         await BumpAndBroadcastAsync(admin.CompanyId, ct);
+        audit.Record(AuditActions.TeamCreated, admin.UserId, admin.CompanyId,
+            new { teamId = team.Id, name, leaderUserId = leaderId });
         return await GetTeamDtoAsync(team.Id, ct);
     }
 
@@ -143,13 +187,15 @@ public sealed class TeamService(
         {
             var leader = await RequireCompanyStaffAsync(admin.CompanyId, newLeaderId, ct);
             // Promote / steal: leave any membership; clear leadership on other teams.
-            await ClearMembershipAsync(leader.Id, ct);
+            await ClearMembershipAsync(leader.Id, excludeTeamId: null, ct);
             await ClearLeadershipExceptAsync(leader.Id, excludeTeamId: team.Id, ct);
             team.LeaderUserId = leader.Id;
         }
 
         team.UpdatedAt = DateTimeOffset.UtcNow;
         await BumpAndBroadcastAsync(admin.CompanyId, ct);
+        audit.Record(AuditActions.TeamUpdated, admin.UserId, admin.CompanyId,
+            new { teamId = team.Id, team.Name, leaderUserId = team.LeaderUserId });
         return await GetTeamDtoAsync(team.Id, ct);
     }
 
@@ -161,6 +207,8 @@ public sealed class TeamService(
             ?? throw new InvalidOperationException("Team not found.");
         db.Teams.Remove(team);
         await BumpAndBroadcastAsync(admin.CompanyId, ct);
+        audit.Record(AuditActions.TeamDeleted, admin.UserId, admin.CompanyId,
+            new { teamId, team.Name, leaderUserId = team.LeaderUserId });
     }
 
     public async Task<TeamDto> SetMembersAsync(Guid adminUserId, Guid teamId, SetMembersRequest request, CancellationToken ct)
@@ -195,6 +243,8 @@ public sealed class TeamService(
 
         team.UpdatedAt = DateTimeOffset.UtcNow;
         await BumpAndBroadcastAsync(admin.CompanyId, ct);
+        audit.Record(AuditActions.TeamMembersReplaced, admin.UserId, admin.CompanyId,
+            new { teamId = team.Id, memberUserIds = desired });
         return await GetTeamDtoAsync(team.Id, ct);
     }
 
@@ -210,14 +260,12 @@ public sealed class TeamService(
 
         await RequireCompanyStaffAsync(admin.CompanyId, staffUserId, ct);
 
-        // If they lead another/this team as leader elsewhere, clear that leadership first.
+        // Adding someone to a team supersedes what they were doing before — leading another team,
+        // or belonging to one. Both are cleared here, which is precisely why neither may then be
+        // re-checked: EnsureCanBecomeMemberAsync queries the database, which has not seen these
+        // stages yet, so it read back the state we just cleared and refused every promotion.
         await ClearLeadershipExceptAsync(staffUserId, excludeTeamId: null, ct);
-
-        // Leave any other membership first.
-        await db.TeamMembers.Where(m => m.StaffUserId == staffUserId && m.TeamId != teamId)
-            .ExecuteDeleteAsync(ct);
-
-        await EnsureCanBecomeMemberAsync(staffUserId, excludeTeamId: teamId, ct);
+        await ClearMembershipAsync(staffUserId, excludeTeamId: teamId, ct);
 
         if (!await db.TeamMembers.AnyAsync(m => m.TeamId == teamId && m.StaffUserId == staffUserId, ct))
         {
@@ -227,9 +275,12 @@ public sealed class TeamService(
                 StaffUserId = staffUserId,
                 JoinedAt = DateTimeOffset.UtcNow
             });
-            team.UpdatedAt = DateTimeOffset.UtcNow;
-            await BumpAndBroadcastAsync(admin.CompanyId, ct);
         }
+
+        // Always persist leadership clears / membership changes (even on re-add).
+        team.UpdatedAt = DateTimeOffset.UtcNow;
+        await BumpAndBroadcastAsync(admin.CompanyId, ct);
+        audit.Record(AuditActions.TeamMemberAdded, admin.UserId, admin.CompanyId, new { teamId, staffUserId });
 
         return await GetTeamDtoAsync(teamId, ct);
     }
@@ -245,20 +296,20 @@ public sealed class TeamService(
             db.TeamMembers.Remove(row);
             team.UpdatedAt = DateTimeOffset.UtcNow;
             await BumpAndBroadcastAsync(admin.CompanyId, ct);
+            audit.Record(AuditActions.TeamMemberRemoved, admin.UserId, admin.CompanyId, new { teamId, staffUserId });
         }
 
         return await GetTeamDtoAsync(teamId, ct);
     }
 
-    public Task<bool> CanViewStaffTrackingAsync(Guid viewerId, Guid targetStaffId, CancellationToken ct)
-        => authorities.CanViewStaffAsync(viewerId, targetStaffId, ct);
-
     public async Task<IReadOnlyList<OrgStaffDto>> ListVisibleStaffAsync(Guid viewerId, CancellationToken ct)
     {
-        var viewer = await RequireUserAsync(viewerId, ct);
+        var viewer = await access.GetAsync(viewerId, ct);
 
-        // Admin / policeman with monitoring packages → whole company staff (never include self).
-        if (await authorities.CanViewCompanyStaffAsync(viewerId, ct))
+        // This list drives the tracking views, so it is scoped by CanViewCompanyData, not by the
+        // roster flag: an approval-only policeman picks staff on the Codes screen, not here.
+        // Admin / policeman with a granted VIEW package → whole company (never include self).
+        if (viewer.CanViewCompanyData)
         {
             return await db.Users.AsNoTracking()
                 .Where(u => u.CompanyId == viewer.CompanyId
@@ -270,7 +321,7 @@ public sealed class TeamService(
         }
 
         // Team leader → only members of the team they lead (immediate with leader assignment).
-        var memberIds = await authorities.ListLedMemberIdsAsync(viewerId, ct);
+        var memberIds = viewer.LedMemberIds;
         if (memberIds.Count == 0)
         {
             return [];
@@ -283,27 +334,129 @@ public sealed class TeamService(
             .ToListAsync(ct);
     }
 
+    public async Task NotifyRosterChangedAsync(Guid companyId, CancellationToken ct)
+    {
+        var company = await db.Companies.FirstAsync(c => c.Id == companyId, ct);
+        company.OrgStructureVersion += 1;
+        await db.SaveChangesAsync(ct);
+
+        // A face nobody has ever asked for still needs the reach cache to admit it exists: the
+        // admin's first fetch of the new avatar happens seconds after this (B12).
+        avatars.InvalidateCompany(companyId);
+
+        // Privileged payload, management group only — same rule the team edits follow. The desktop
+        // already force-reloads its staff directory on this message, so no client change is needed
+        // for an admin to see the new employee at once (§4.1, §14.1).
+        var dto = await BuildStructureAsync(companyId, ct);
+        await hub.Clients.Group(ConfigHub.CompanyManagementGroup(companyId))
+            .SendAsync("OrgStructureUpdated", dto, ct);
+
+        // …and a contentless nudge to everyone else. A team leader or an approval-only policeman
+        // is deliberately NOT in the management group and must never receive the org chart, but
+        // they do have a roster of their own that just changed. This carries no names and no ids —
+        // only "re-read the list you are already allowed to read", which the server re-scopes.
+        await hub.Clients.Group(ConfigHub.CompanyGroup(companyId))
+            .SendAsync("StaffRegistered", new StaffRosterChangedDto
+            {
+                CompanyId = companyId,
+                StructureVersion = company.OrgStructureVersion
+            }, ct);
+
+        logger.LogInformation("Roster change v{Version} broadcast for company {CompanyId}",
+            company.OrgStructureVersion, companyId);
+    }
+
     private async Task BumpAndBroadcastAsync(Guid companyId, CancellationToken ct)
     {
         var company = await db.Companies.FirstAsync(c => c.Id == companyId, ct);
         company.OrgStructureVersion += 1;
         await db.SaveChangesAsync(ct);
 
+        // Leadership just moved, so every memoized ViewerContext in this request is stale.
+        access.Invalidate();
+        // …as is every viewer's cached avatar reach: a leader who lost their team must stop being
+        // able to fetch its faces at once, not when the cache window closes (B12).
+        avatars.InvalidateCompany(companyId);
+
         var dto = await BuildStructureAsync(companyId, ct);
-        await hub.Clients.Group(ConfigHub.CompanyGroup(companyId))
+        // Org chart is management-only — GET /api/org/structure requires team_management.
+        await hub.Clients.Group(ConfigHub.CompanyManagementGroup(companyId))
             .SendAsync("OrgStructureUpdated", dto, ct);
 
-        // Leaders gain/lose inherent view packages immediately with assignment changes.
-        var staffIds = await db.Users.AsNoTracking()
-            .Where(u => u.CompanyId == companyId && u.Role == UserRole.Staff)
-            .Select(u => u.Id)
-            .ToListAsync(ct);
-        foreach (var staffId in staffIds)
+        // Leaders gain/lose inherent view packages immediately with assignment changes, so every
+        // staff member is pushed their new effective set. Three batch queries build the whole
+        // company; asking IAccessPolicy per staff member cost two each, so one "add member" click
+        // in a 50-person company ran ~100 queries inside the request (B5).
+        var principals = await LoadCompanyStaffPrincipalsAsync(companyId, ct);
+        foreach (var principal in principals)
         {
-            var auth = await authorities.GetEffectiveAsync(staffId, ct);
-            await hub.Clients.Group(ConfigHub.StaffGroup(staffId))
-                .SendAsync("AuthoritiesUpdated", auth, ct);
+            await hub.Clients.Group(ConfigHub.StaffGroup(principal.UserId))
+                .SendAsync("AuthoritiesUpdated", principal.ToEffectiveAuthorities(), ct);
         }
+
+        logger.LogInformation("Org structure v{Version} broadcast for company {CompanyId} ({StaffCount} staff)",
+            company.OrgStructureVersion, companyId, principals.Count);
+    }
+
+    /// <summary>
+    /// Every staff principal in one company, in three queries regardless of headcount.
+    ///
+    /// Deliberately reconstructs <see cref="ViewerContext"/> — the same record
+    /// <see cref="IAccessPolicy"/> loads one user at a time — so a batched principal and a
+    /// singly-loaded one answer identically. Only the loading strategy differs, never the rules.
+    /// </summary>
+    private async Task<List<ViewerContext>> LoadCompanyStaffPrincipalsAsync(Guid companyId, CancellationToken ct)
+    {
+        var staff = await db.Users.AsNoTracking()
+            .Where(u => u.CompanyId == companyId && u.Role == UserRole.Staff)
+            .Select(u => new { u.Id, u.Role, u.IsPoliceman, u.AuthorityVersion })
+            .ToListAsync(ct);
+        if (staff.Count == 0)
+        {
+            return [];
+        }
+
+        // Loaded for every staff member, policeman or not, exactly as the per-user load does:
+        // GrantedPackages is raw rows and only IsPoliceman decides whether they count.
+        var grants = await db.PolicemanAuthorityGrants.AsNoTracking()
+            .Where(g => g.StaffUser.CompanyId == companyId)
+            .Select(g => new { g.StaffUserId, g.PackageId })
+            .ToListAsync(ct);
+        var grantsByUser = grants
+            .GroupBy(g => g.StaffUserId)
+            .ToDictionary(
+                g => g.Key,
+                g => (IReadOnlySet<string>)new HashSet<string>(g.Select(x => x.PackageId), StringComparer.Ordinal));
+
+        var ledTeams = await db.Teams.AsNoTracking()
+            .Where(t => t.CompanyId == companyId && t.LeaderUserId != null)
+            .Select(t => new
+            {
+                TeamId = t.Id,
+                LeaderUserId = t.LeaderUserId!.Value,
+                MemberIds = t.Members.Select(m => m.StaffUserId).ToList()
+            })
+            .ToListAsync(ct);
+        var ledByLeader = ledTeams
+            .GroupBy(t => t.LeaderUserId)
+            .ToDictionary(
+                g => g.Key,
+                g => (TeamId: g.First().TeamId,
+                      MemberIds: (IReadOnlySet<Guid>)g.SelectMany(t => t.MemberIds).ToHashSet()));
+
+        return staff.Select(u =>
+        {
+            var leads = ledByLeader.TryGetValue(u.Id, out var led);
+            return new ViewerContext(
+                u.Id,
+                companyId,
+                u.Role,
+                u.IsPoliceman,
+                u.AuthorityVersion,
+                grantsByUser.GetValueOrDefault(u.Id) ?? NoPackages,
+                leads ? led.TeamId : null,
+                leads ? led.MemberIds : NoMembers);
+        }).ToList();
     }
 
     private async Task<OrgStructureDto> BuildStructureAsync(Guid companyId, CancellationToken ct)
@@ -365,9 +518,16 @@ public sealed class TeamService(
         LastSeenAt = u.LastSeenAt
     };
 
-    private async Task ClearMembershipAsync(Guid staffUserId, CancellationToken ct)
+    /// <summary>
+    /// Stages the removal of every membership except <paramref name="excludeTeamId"/>. Tracked
+    /// rather than an <c>ExecuteDeleteAsync</c>, so it lands in the same SaveChanges — and the same
+    /// transaction — as the change that made it necessary.
+    /// </summary>
+    private async Task ClearMembershipAsync(Guid staffUserId, Guid? excludeTeamId, CancellationToken ct)
     {
-        var memberships = await db.TeamMembers.Where(m => m.StaffUserId == staffUserId).ToListAsync(ct);
+        var memberships = await db.TeamMembers
+            .Where(m => m.StaffUserId == staffUserId && (excludeTeamId == null || m.TeamId != excludeTeamId))
+            .ToListAsync(ct);
         if (memberships.Count > 0)
         {
             db.TeamMembers.RemoveRange(memberships);
@@ -383,21 +543,6 @@ public sealed class TeamService(
         {
             t.LeaderUserId = null;
             t.UpdatedAt = DateTimeOffset.UtcNow;
-        }
-    }
-
-    private async Task EnsureCanBecomeLeaderAsync(Guid staffUserId, CancellationToken ct)
-    {
-        var leadsOther = await db.Teams.AnyAsync(t => t.LeaderUserId == staffUserId, ct);
-        if (leadsOther)
-        {
-            throw new InvalidOperationException("Staff already leads another team.");
-        }
-
-        var isMember = await db.TeamMembers.AnyAsync(m => m.StaffUserId == staffUserId, ct);
-        if (isMember)
-        {
-            throw new InvalidOperationException("Staff is a team member; remove them from their team before making them a leader.");
         }
     }
 
@@ -440,12 +585,12 @@ public sealed class TeamService(
 
     private async Task<UserAccount> RequireUserAsync(Guid userId, CancellationToken ct)
         => await db.Users.FirstOrDefaultAsync(u => u.Id == userId, ct)
-           ?? throw new UnauthorizedAccessException("User not found.");
+           ?? throw new SessionInvalidException("User not found.");
 
-    private async Task<UserAccount> RequireTeamManagerAsync(Guid userId, CancellationToken ct)
+    private async Task<ViewerContext> RequireTeamManagerAsync(Guid userId, CancellationToken ct)
     {
-        var user = await RequireUserAsync(userId, ct);
-        if (!await authorities.CanManageTeamsAsync(userId, ct))
+        var user = await access.GetAsync(userId, ct);
+        if (!user.CanManageTeams)
         {
             throw new UnauthorizedAccessException("Missing authority package: team_management");
         }

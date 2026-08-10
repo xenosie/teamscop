@@ -1,10 +1,12 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="clr-namespace:Teamscop.App.ViewModels"
         x:Class="Teamscop.App.Views.TimeTrackStickerWindow"
+        x:DataType="vm:TimeTrackStickerViewModel"
         Title="Teamscop"
-        Width="320" Height="32"
-        MinWidth="240" MinHeight="28"
-        MaxWidth="480" MaxHeight="40"
+        Width="200" Height="20"
+        MinWidth="160" MinHeight="18"
+        MaxWidth="280" MaxHeight="24"
         CanResize="False"
         ShowInTaskbar="False"
         Topmost="True"
@@ -14,14 +16,65 @@
         Background="Transparent"
         TransparencyLevelHint="Transparent"
         WindowStartupLocation="Manual">
+
+  <!--
+    A15 / §14.4 — proof the engine is running: a status dot first, then the 24 h bar, and when the
+    state cannot be confirmed the bar gives way to the reason. It is never closable.
+  -->
   <Border Background="#F8FAFC"
           BorderBrush="#2563EB"
           BorderThickness="1"
           CornerRadius="0"
+          BoxShadow="none"
           ClipToBounds="True"
+          ToolTip.Tip="{Binding ToolTipText}"
           PointerPressed="OnDragPressed">
-    <Grid Name="TimelineBar"
-          Margin="2"
-          Background="#E2E8F0" />
+    <!-- "Status" is the menu itself: the state is stated, not hidden behind another click. -->
+    <Border.ContextFlyout>
+      <MenuFlyout>
+        <MenuItem IsEnabled="False">
+          <MenuItem.Header>
+            <StackPanel Spacing="2" MaxWidth="260">
+              <TextBlock Text="{Binding StatusHeadline}" FontSize="12" FontWeight="SemiBold" />
+              <TextBlock Text="{Binding StatusDetail}" FontSize="11" TextWrapping="Wrap" />
+            </StackPanel>
+          </MenuItem.Header>
+        </MenuItem>
+        <Separator />
+        <MenuItem Header="Open Teamscop" Command="{Binding OpenShellCommand}" />
+        <MenuItem Header="Check now" Command="{Binding RefreshCommand}" />
+        <Separator />
+        <!-- Hides for this session only; it returns at next sign-in. -->
+        <MenuItem Header="Hide bar" Command="{Binding HideBarCommand}" />
+      </MenuFlyout>
+    </Border.ContextFlyout>
+
+    <Grid ColumnDefinitions="Auto,*" Margin="1">
+      <Ellipse Grid.Column="0"
+               Width="7" Height="7"
+               Margin="3,0,4,0"
+               VerticalAlignment="Center"
+               Fill="{Binding StatusBrush}" />
+
+      <!-- The bar owns the full width. The dot states health; the worked total sits ON the bar so
+           it is readable at a glance, not behind a hover. -->
+      <Panel Grid.Column="1">
+        <Grid Name="TimelineBar"
+              Background="#E2E8F0"
+              IsVisible="{Binding ShowBar}" />
+        <Border HorizontalAlignment="Right"
+                VerticalAlignment="Center"
+                Margin="0,0,3,0"
+                Padding="4,0"
+                CornerRadius="0"
+                Background="#B3111827"
+                IsHitTestVisible="False">
+          <TextBlock Text="{Binding WorkedLabel}"
+                     FontSize="10"
+                     FontWeight="SemiBold"
+                     Foreground="White" />
+        </Border>
+      </Panel>
+    </Grid>
   </Border>
 </Window>

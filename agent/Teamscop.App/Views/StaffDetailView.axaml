@@ -1,0 +1,78 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:Teamscop.App.ViewModels"
+             xmlns:views="clr-namespace:Teamscop.App.Views"
+             xmlns:heroIcons="clr-namespace:HeroIconsAvalonia.Controls;assembly=HeroIconsAvalonia"
+             x:Class="Teamscop.App.Views.StaffDetailView"
+             x:DataType="vm:StaffDetailViewModel">
+
+  <!-- One template per section ViewModel replaces six overlapping IsVisible panels, twice over. -->
+  <UserControl.DataTemplates>
+    <DataTemplate DataType="{x:Type vm:StaffSummaryViewModel}">
+      <views:StaffSummaryView />
+    </DataTemplate>
+    <DataTemplate DataType="{x:Type vm:ScreenshotGalleryViewModel}">
+      <views:ScreenshotGalleryView />
+    </DataTemplate>
+    <DataTemplate DataType="{x:Type vm:BrowsingHistoryViewModel}">
+      <views:BrowsingHistoryView />
+    </DataTemplate>
+    <DataTemplate DataType="{x:Type vm:TimeTrackViewModel}">
+      <views:TimeTrackView />
+    </DataTemplate>
+    <DataTemplate DataType="{x:Type vm:AppHistoryViewModel}">
+      <views:AppHistoryView />
+    </DataTemplate>
+    <DataTemplate DataType="{x:Type vm:StaffTrackingSettingsViewModel}">
+      <views:StaffTrackingSettingsView />
+    </DataTemplate>
+  </UserControl.DataTemplates>
+
+  <Panel>
+    <TextBlock Text="Select a staff member to view tracking."
+               Classes="ts-muted"
+               FontSize="14"
+               Margin="28"
+               IsVisible="{Binding !IsStaffSelected}"
+               VerticalAlignment="Center"
+               HorizontalAlignment="Center" />
+
+    <Panel IsVisible="{Binding IsStaffSelected}" Margin="28">
+      <Panel Margin="0,8,48,0">
+        <ContentControl Content="{Binding CurrentContent}" />
+      </Panel>
+
+      <!-- Any staff member, any period, from the calendar (§14.3) — shared by every section. -->
+      <StackPanel Orientation="Horizontal"
+                  HorizontalAlignment="Right"
+                  VerticalAlignment="Top"
+                  Spacing="10"
+                  ZIndex="20">
+        <TextBlock Text="{Binding PeriodFilter.RangeLabel}"
+                   FontSize="13"
+                   VerticalAlignment="Center"
+                   Foreground="{StaticResource TsTextMutedBrush}" />
+        <Border Width="8" Height="8"
+                Background="{StaticResource TsAccentBrush}"
+                VerticalAlignment="Center"
+                IsVisible="{Binding PeriodFilter.HasActiveFilter}" />
+        <Button Classes="ts-link"
+                Width="40" Height="40"
+                Padding="0"
+                Command="{Binding PeriodFilter.ToggleCalendarCommand}"
+                ToolTip.Tip="Filter by date or period">
+          <heroIcons:HeroIcon Type="CalendarDays" Kind="Outline" Width="22" Height="22"
+                              Foreground="{StaticResource TsAccentBrush}" />
+        </Button>
+      </StackPanel>
+
+      <Border HorizontalAlignment="Right"
+              VerticalAlignment="Top"
+              Margin="0,48,0,0"
+              ZIndex="30"
+              IsVisible="{Binding PeriodFilter.IsCalendarOpen}">
+        <views:StaffPeriodCalendarView DataContext="{Binding PeriodFilter}" />
+      </Border>
+    </Panel>
+  </Panel>
+</UserControl>

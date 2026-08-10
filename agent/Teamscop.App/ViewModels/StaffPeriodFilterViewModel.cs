@@ -1,11 +1,9 @@
 using System.Collections.ObjectModel;
-using System.Globalization;
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
-using Teamscop.App.Services;
 using CommunityToolkit.Mvvm.Input;
-using Teamscop.Engine.Auth;
-using Teamscop.Engine.Lifecycle;
+using Teamscop.App.Composition;
+using Teamscop.App.Services;
 using Teamscop.Engine.Tracking;
 
 namespace Teamscop.App.ViewModels;
@@ -36,17 +34,14 @@ public sealed partial class CalendarDayCellViewModel : ObservableObject
 /// </summary>
 public sealed partial class StaffPeriodFilterViewModel : ObservableObject
 {
-    private readonly LocalAgentStore _store;
-    private string _apiBaseUrl;
-    private BusinessClockConfig _clockConfig = new();
+    private readonly CompanyClock _clock;
     private DateTime? _rangeAnchor;
     private bool _selectingEnd;
 
-    public StaffPeriodFilterViewModel(string? apiBaseUrl = null)
+    public StaffPeriodFilterViewModel(AppServices services)
     {
-        _store = AppSessionStore.ForActiveSession();
-        _apiBaseUrl = ResolveApiBase(apiBaseUrl);
-        var today = DateTime.UtcNow.Date;
+        _clock = services.Clock;
+        var today = _clock.Today;
         VisibleYear = today.Year;
         VisibleMonth = today.Month;
         SelectedMonthOption = MonthOptions[VisibleMonth - 1];
@@ -135,48 +130,32 @@ public sealed partial class StaffPeriodFilterViewModel : ObservableObject
     partial void OnSelectedStartChanged(DateTime? value) => RefreshSelectionStyles();
     partial void OnSelectedEndChanged(DateTime? value) => RefreshSelectionStyles();
 
-    public async Task EnsureClockAsync()
+    /// <summary>
+    /// Points the calendar at the company's today. Local only: the zone arrives once at start-up
+    /// and again over SignalR, so re-reading /business-time every time a member or the calendar is
+    /// opened was a round trip per click for a value the app already holds (§15.2).
+    /// </summary>
+    public void SyncToClock()
     {
-        var state = _store.Load();
-        if (string.IsNullOrWhiteSpace(state.AccessToken))
+        var local = _clock.Today;
+        if (!YearOptions.Contains(local.Year))
         {
-            return;
+            YearOptions.Add(local.Year);
         }
 
-        _apiBaseUrl = ResolveApiBase(state.ApiBaseUrl);
-        try
+        if (!IsCalendarOpen && AppliedStart is null)
         {
-            using var api = new BusinessTimeApiClient(_apiBaseUrl);
-            _clockConfig = await api.GetMineAsync(state.AccessToken).ConfigureAwait(false);
-            var bizToday = new BusinessClock();
-            bizToday.Apply(_clockConfig);
-            var local = bizToday.Now().BusinessLocal.Date;
-            await Dispatcher.UIThread.InvokeAsync(() =>
-            {
-                if (!YearOptions.Contains(local.Year))
-                {
-                    YearOptions.Add(local.Year);
-                }
-
-                if (!IsCalendarOpen && AppliedStart is null)
-                {
-                    VisibleYear = local.Year;
-                    VisibleMonth = local.Month;
-                }
-            });
-        }
-        catch
-        {
-            // keep previous / UTC defaults
+            VisibleYear = local.Year;
+            VisibleMonth = local.Month;
         }
     }
 
     [RelayCommand]
-    private async Task ToggleCalendarAsync()
+    private void ToggleCalendar()
     {
         if (!IsCalendarOpen)
         {
-            await EnsureClockAsync();
+            SyncToClock();
             SelectedStart = AppliedStart;
             SelectedEnd = AppliedEnd ?? AppliedStart;
             _selectingEnd = false;
@@ -215,9 +194,7 @@ public sealed partial class StaffPeriodFilterViewModel : ObservableObject
     [RelayCommand]
     private void GoToday()
     {
-        var clock = new BusinessClock();
-        clock.Apply(_clockConfig);
-        var today = clock.Now().BusinessLocal.Date;
+        var today = _clock.Today;
         VisibleYear = today.Year;
         VisibleMonth = today.Month;
         SelectedStart = today;
@@ -281,24 +258,81 @@ public sealed partial class StaffPeriodFilterViewModel : ObservableObject
             return;
         }
 
-        var start = SelectedStart.Value.Date;
-        var end = (SelectedEnd ?? SelectedStart.Value).Date;
+        ApplyRange(SelectedStart.Value, SelectedEnd ?? SelectedStart.Value);
+    }
+
+    /// <summary>
+    /// Applies a period without going through the calendar — the leaderboard opens on the current
+    /// week, and a staff member opens on today. Both days are company business-local (§8.2).
+    /// </summary>
+    public void ApplyRange(DateTime startDay, DateTime endDay) => ApplyRange(startDay, endDay, raise: true);
+
+    /// <summary>
+    /// §2.5 — a staff member opens on today's period so the timetrack bar and every section have a
+    /// concrete span from the first frame instead of the empty "select a period" state. The applied
+    /// range is seeded silently (the caller triggers the one reload), and a period already chosen is
+    /// kept so re-selecting a member does not reset their calendar.
+    /// </summary>
+    public void EnsureDefaultPeriod()
+    {
+        SyncToClock();
+        if (AppliedStart is not null)
+        {
+            return;
+        }
+
+        var today = _clock.Today;
+        ApplyRange(today, today, raise: false);
+    }
+
+    private void ApplyRange(DateTime startDay, DateTime endDay, bool raise)
+    {
+        var start = startDay.Date;
+        var end = endDay.Date;
         if (end < start)
         {
             (start, end) = (end, start);
         }
 
+        SelectedStart = start;
+        SelectedEnd = end;
         AppliedStart = start;
         AppliedEnd = end;
         // Day D → [D 00:00, D 24:00) in company business-local time.
-        AppliedFromUtc = BusinessClock.BusinessLocalToUtc(_clockConfig, start);
-        AppliedToUtc = BusinessClock.BusinessLocalToUtc(_clockConfig, end.AddDays(1));
+        AppliedFromUtc = _clock.ToUtc(start);
+        AppliedToUtc = _clock.ToUtc(end.AddDays(1));
         HasActiveFilter = true;
-        RangeLabel = start == end
-            ? start.ToString("dd MMM yyyy", CultureInfo.InvariantCulture)
-            : $"{start:dd MMM yyyy} – {end:dd MMM yyyy}";
+        RangeLabel = CompanyClock.FormatDayRange(start, end);
         IsCalendarOpen = false;
-        FilterChanged?.Invoke();
+        _selectingEnd = false;
+        _rangeAnchor = null;
+        if (raise)
+        {
+            FilterChanged?.Invoke();
+        }
+    }
+
+    /// <summary>
+    /// §8.2 — the company zone moved, so the same calendar days now span different instants and
+    /// "today" may be a different date. Recomputes the applied bounds and the grid in place; the
+    /// caller decides what to reload, so this never raises <see cref="FilterChanged"/> itself.
+    /// </summary>
+    public void ReapplyClock()
+    {
+        var local = _clock.Today;
+        if (!YearOptions.Contains(local.Year))
+        {
+            YearOptions.Add(local.Year);
+        }
+
+        if (AppliedStart is { } start && AppliedEnd is { } end)
+        {
+            AppliedFromUtc = _clock.ToUtc(start);
+            AppliedToUtc = _clock.ToUtc(end.AddDays(1));
+            RangeLabel = CompanyClock.FormatDayRange(start, end);
+        }
+
+        RebuildGrid();
     }
 
     [RelayCommand]
@@ -331,17 +365,7 @@ public sealed partial class StaffPeriodFilterViewModel : ObservableObject
         // Monday-first
         var offset = ((int)first.DayOfWeek + 6) % 7;
         var cursor = first.AddDays(-offset);
-        var today = DateTime.UtcNow.Date;
-        try
-        {
-            var clock = new BusinessClock();
-            clock.Apply(_clockConfig);
-            today = clock.Now().BusinessLocal.Date;
-        }
-        catch
-        {
-            // keep UTC date
-        }
+        var today = _clock.Today;
 
         for (var i = 0; i < 42; i++)
         {
@@ -379,9 +403,4 @@ public sealed partial class StaffPeriodFilterViewModel : ObservableObject
             cell.IsInPeriod = start is not null && end is not null && d >= start && d <= end;
         }
     }
-
-    private static string ResolveApiBase(string? apiBaseUrl)
-        => string.IsNullOrWhiteSpace(apiBaseUrl)
-            ? Environment.GetEnvironmentVariable("TEAMSCOP_API_BASE") ?? "https://teamscop.com"
-            : apiBaseUrl.TrimEnd('/');
 }

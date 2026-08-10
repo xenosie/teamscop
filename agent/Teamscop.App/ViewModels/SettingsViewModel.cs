@@ -2,9 +2,9 @@ using System.Collections.ObjectModel;
 using System.Globalization;
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
-using Teamscop.App.Services;
 using CommunityToolkit.Mvvm.Input;
-using Teamscop.Engine.Auth;
+using Teamscop.App.Composition;
+using Teamscop.App.Services;
 using Teamscop.Engine.Lifecycle;
 using Teamscop.Engine.Tracking;
 
@@ -12,38 +12,32 @@ namespace Teamscop.App.ViewModels;
 
 public sealed partial class SettingsViewModel : ObservableObject
 {
-    private readonly LocalAgentStore _store;
-    private string _apiBaseUrl;
-    private bool _suppressTzSideEffects;
+    private readonly TeamscopApi _api;
+    private readonly SessionStore _session;
+    private readonly CompanyClock _clock;
     private List<AuthorityPackageInfo> _packageCatalog = [];
     private List<StaffCardViewModel> _allStaff = [];
 
-    public SettingsViewModel(string? apiBaseUrl = null)
+    public SettingsViewModel(AppServices services)
     {
-        _store = AppSessionStore.ForActiveSession();
-        _apiBaseUrl = ResolveApiBase(apiBaseUrl);
-        foreach (var tz in BuildTimezoneOptions())
+        _api = services.Api;
+        _session = services.Session;
+        _clock = services.Clock;
+        foreach (var tz in TimeZoneCatalog.Build())
         {
             TimeZoneOptions.Add(tz);
         }
 
-        SelectedTimeZoneId = "UTC";
-        SeedLocalNow();
+        SelectedTimeZone = FindOrAddTimeZone("UTC");
     }
 
     /// <summary>title, candidates → selected user id or null.</summary>
     public Func<string, IReadOnlyList<StaffCardViewModel>, Task<Guid?>>? RequestPickStaff { get; set; }
 
-    public ObservableCollection<string> TimeZoneOptions { get; } = [];
+    public ObservableCollection<TimeZoneOption> TimeZoneOptions { get; } = [];
     public ObservableCollection<PolicemanRowViewModel> Policemen { get; } = [];
 
-    [ObservableProperty] private string _selectedTimeZoneId = "UTC";
-    [ObservableProperty] private string _yearText = "2026";
-    [ObservableProperty] private string _monthText = "1";
-    [ObservableProperty] private string _dayText = "1";
-    [ObservableProperty] private string _hourText = "0";
-    [ObservableProperty] private string _minuteText = "0";
-    [ObservableProperty] private string _secondText = "0";
+    [ObservableProperty] private TimeZoneOption? _selectedTimeZone;
 
     [ObservableProperty] private bool _isBusy;
     [ObservableProperty] private string? _statusMessage;
@@ -51,11 +45,8 @@ public sealed partial class SettingsViewModel : ObservableObject
     [ObservableProperty] private string? _policeStatusMessage;
     [ObservableProperty] private string? _policeErrorMessage;
 
-    [ObservableProperty] private bool _isSynchronized;
-    [ObservableProperty] private long _clockVersion;
     [ObservableProperty] private string _currentBusinessLocal = "—";
     [ObservableProperty] private string _currentTimeZoneLabel = "UTC";
-    [ObservableProperty] private string _updatedAtLabel = "—";
 
     public bool CanSave => !IsBusy;
     public bool ShowStatus => !string.IsNullOrWhiteSpace(StatusMessage);
@@ -76,27 +67,14 @@ public sealed partial class SettingsViewModel : ObservableObject
     partial void OnPoliceStatusMessageChanged(string? value) => OnPropertyChanged(nameof(ShowPoliceStatus));
     partial void OnPoliceErrorMessageChanged(string? value) => OnPropertyChanged(nameof(ShowPoliceError));
 
-    partial void OnSelectedTimeZoneIdChanged(string value)
+    public async Task LoadAsync(CancellationToken ct = default)
     {
-        if (_suppressTzSideEffects || string.IsNullOrWhiteSpace(value))
-        {
-            return;
-        }
-
-        // When admin picks a zone, refresh the editable wall-clock suggestion in that zone.
-        ApplyWallClockSuggestion(value);
-    }
-
-    public async Task LoadAsync()
-    {
-        var state = _store.Load();
-        if (string.IsNullOrWhiteSpace(state.AccessToken))
+        if (!_session.HasToken)
         {
             ErrorMessage = "Sign in required.";
             return;
         }
 
-        _apiBaseUrl = ResolveApiBase(state.ApiBaseUrl);
         IsBusy = true;
         ErrorMessage = null;
         StatusMessage = null;
@@ -104,26 +82,19 @@ public sealed partial class SettingsViewModel : ObservableObject
         PoliceStatusMessage = null;
         try
         {
-            using var api = new BusinessTimeApiClient(_apiBaseUrl);
-            var cfg = await api.GetMineAsync(state.AccessToken).ConfigureAwait(false);
-            BusinessTimeNowDto? now = null;
-            try
-            {
-                now = await api.GetNowAsync(state.AccessToken).ConfigureAwait(false);
-            }
-            catch
-            {
-                // optional
-            }
-
-            await Dispatcher.UIThread.InvokeAsync(() => ApplyConfig(cfg, now));
-            await LoadPoliceAsync(state.AccessToken).ConfigureAwait(false);
+            var cfg = await _api.GetBusinessTimeAsync(ct).ConfigureAwait(false);
+            await Dispatcher.UIThread.InvokeAsync(() => ApplyConfig(cfg));
+            await LoadPoliceAsync(ct).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            // The route was left; the next entry reloads.
         }
         catch (Exception ex)
         {
             await Dispatcher.UIThread.InvokeAsync(() =>
             {
-                ErrorMessage = FormatError(ex);
+                ErrorMessage = ApiError.Describe(ex, "Request failed.");
             });
         }
         finally
@@ -148,93 +119,63 @@ public sealed partial class SettingsViewModel : ObservableObject
 
     public void ApplyBusinessTimeRealtime(BusinessClockConfig cfg)
     {
-        ApplyConfig(cfg, now: null);
-        StatusMessage = $"Business clock synchronized from server (v{cfg.ClockVersion}).";
+        ApplyConfig(cfg);
+        StatusMessage = $"Company time zone updated to {CurrentTimeZoneLabel}.";
         ErrorMessage = null;
     }
 
     [RelayCommand]
-    private async Task SyncBusinessClockAsync()
+    private async Task SaveTimeZoneAsync()
     {
         if (IsBusy)
         {
             return;
         }
 
-        var state = _store.Load();
-        if (string.IsNullOrWhiteSpace(state.AccessToken))
+        if (!_session.HasToken)
         {
             ErrorMessage = "Sign in required.";
             return;
         }
 
-        if (string.IsNullOrWhiteSpace(SelectedTimeZoneId))
+        var zoneId = SelectedTimeZone?.Id.Trim();
+        if (string.IsNullOrWhiteSpace(zoneId))
         {
-            ErrorMessage = "Time zone is required.";
+            ErrorMessage = "Pick a time zone.";
             return;
         }
 
-        if (!TryReadDateTime(out var year, out var month, out var day, out var hour, out var minute, out var second))
-        {
-            ErrorMessage = "Invalid business date/time.";
-            return;
-        }
-
-        // Validate zone the same way the engine does.
-        _ = BusinessClock.ResolveTimeZone(SelectedTimeZoneId);
-
-        _apiBaseUrl = ResolveApiBase(state.ApiBaseUrl);
         IsBusy = true;
         ErrorMessage = null;
         StatusMessage = null;
         try
         {
-            using var api = new BusinessTimeApiClient(_apiBaseUrl);
-            var cfg = await api.DeclareAsync(state.AccessToken, new DeclareBusinessTimeBody
-            {
-                TimeZoneId = SelectedTimeZoneId.Trim(),
-                Year = year,
-                Month = month,
-                Day = day,
-                Hour = hour,
-                Minute = minute,
-                Second = second
-            }).ConfigureAwait(false);
-
-            BusinessTimeNowDto? now = null;
-            try
-            {
-                now = await api.GetNowAsync(state.AccessToken).ConfigureAwait(false);
-            }
-            catch
-            {
-                // optional
-            }
+            // PUT /api/business-time { timeZoneId } — the zone is the whole setting (§8.4).
+            var zone = await _api.SetBusinessTimeZoneAsync(zoneId, CancellationToken.None)
+                .ConfigureAwait(false);
 
             await Dispatcher.UIThread.InvokeAsync(() =>
             {
-                ApplyConfig(cfg, now);
-                StatusMessage = $"Business clock synchronized (v{cfg.ClockVersion}).";
+                ApplyConfig(new BusinessClockConfig
+                {
+                    CompanyId = zone.CompanyId,
+                    TimeZoneId = zone.TimeZoneId,
+                    UpdatedAt = DateTimeOffset.UtcNow
+                });
+                StatusMessage = $"Company time zone set to {CurrentTimeZoneLabel} — staff agents sync immediately.";
             });
         }
         catch (Exception ex)
         {
             await Dispatcher.UIThread.InvokeAsync(() =>
             {
-                ErrorMessage = FormatError(ex);
+                ErrorMessage = ApiError.Describe(ex, "Request failed.");
             });
         }
         finally
         {
             await Dispatcher.UIThread.InvokeAsync(() => IsBusy = false);
         }
-    }
-
-    [RelayCommand]
-    private void UseSuggestedNow()
-    {
-        ApplyWallClockSuggestion(SelectedTimeZoneId);
-        StatusMessage = "Filled with current time in the selected zone.";
     }
 
     [RelayCommand]
@@ -245,15 +186,14 @@ public sealed partial class SettingsViewModel : ObservableObject
             return;
         }
 
-        var state = _store.Load();
-        if (string.IsNullOrWhiteSpace(state.AccessToken))
+        if (!_session.HasToken)
         {
             PoliceErrorMessage = "Sign in required.";
             return;
         }
 
         // Stay on UI thread until after the picker — Window creation requires it.
-        await EnsureStaffPoolAsync(state.AccessToken);
+        await EnsureStaffPoolAsync(CancellationToken.None);
         var policeIds = Policemen.Select(p => p.StaffUserId).ToHashSet();
         var candidates = _allStaff.Where(s => !policeIds.Contains(s.UserId)).ToList();
         if (candidates.Count == 0)
@@ -268,15 +208,13 @@ public sealed partial class SettingsViewModel : ObservableObject
             return;
         }
 
-        _apiBaseUrl = ResolveApiBase(state.ApiBaseUrl);
         IsBusy = true;
         PoliceErrorMessage = null;
         PoliceStatusMessage = null;
         try
         {
-            using var police = new PoliceApiClient(_apiBaseUrl);
-            await police.UpsertPolicemanAsync(state.AccessToken, picked.Value, []).ConfigureAwait(false);
-            var list = await police.ListPolicemenAsync(state.AccessToken).ConfigureAwait(false);
+            await _api.UpsertPolicemanAsync(picked.Value, [], CancellationToken.None).ConfigureAwait(false);
+            var list = await _api.ListPolicemenAsync(CancellationToken.None).ConfigureAwait(false);
             await Dispatcher.UIThread.InvokeAsync(() =>
             {
                 ReplacePolicemen(list);
@@ -287,7 +225,8 @@ public sealed partial class SettingsViewModel : ObservableObject
         }
         catch (Exception ex)
         {
-            await Dispatcher.UIThread.InvokeAsync(() => PoliceErrorMessage = FormatError(ex));
+            await Dispatcher.UIThread.InvokeAsync(
+                () => PoliceErrorMessage = ApiError.Describe(ex, "Request failed."));
         }
         finally
         {
@@ -303,23 +242,20 @@ public sealed partial class SettingsViewModel : ObservableObject
             return;
         }
 
-        var state = _store.Load();
-        if (string.IsNullOrWhiteSpace(state.AccessToken))
+        if (!_session.HasToken)
         {
             PoliceErrorMessage = "Sign in required.";
             return;
         }
 
-        _apiBaseUrl = ResolveApiBase(state.ApiBaseUrl);
         IsBusy = true;
         PoliceErrorMessage = null;
         PoliceStatusMessage = null;
         try
         {
-            using var police = new PoliceApiClient(_apiBaseUrl);
-            await police.UpsertPolicemanAsync(
-                state.AccessToken, row.StaffUserId, row.SelectedPackageIds()).ConfigureAwait(false);
-            var list = await police.ListPolicemenAsync(state.AccessToken).ConfigureAwait(false);
+            await _api.UpsertPolicemanAsync(
+                row.StaffUserId, row.SelectedPackageIds(), CancellationToken.None).ConfigureAwait(false);
+            var list = await _api.ListPolicemenAsync(CancellationToken.None).ConfigureAwait(false);
             await Dispatcher.UIThread.InvokeAsync(() =>
             {
                 ReplacePolicemen(list);
@@ -328,7 +264,8 @@ public sealed partial class SettingsViewModel : ObservableObject
         }
         catch (Exception ex)
         {
-            await Dispatcher.UIThread.InvokeAsync(() => PoliceErrorMessage = FormatError(ex));
+            await Dispatcher.UIThread.InvokeAsync(
+                () => PoliceErrorMessage = ApiError.Describe(ex, "Request failed."));
         }
         finally
         {
@@ -344,22 +281,19 @@ public sealed partial class SettingsViewModel : ObservableObject
             return;
         }
 
-        var state = _store.Load();
-        if (string.IsNullOrWhiteSpace(state.AccessToken))
+        if (!_session.HasToken)
         {
             PoliceErrorMessage = "Sign in required.";
             return;
         }
 
-        _apiBaseUrl = ResolveApiBase(state.ApiBaseUrl);
         IsBusy = true;
         PoliceErrorMessage = null;
         PoliceStatusMessage = null;
         try
         {
-            using var police = new PoliceApiClient(_apiBaseUrl);
-            await police.RevokePolicemanAsync(state.AccessToken, row.StaffUserId).ConfigureAwait(false);
-            var list = await police.ListPolicemenAsync(state.AccessToken).ConfigureAwait(false);
+            await _api.RevokePolicemanAsync(row.StaffUserId, CancellationToken.None).ConfigureAwait(false);
+            var list = await _api.ListPolicemenAsync(CancellationToken.None).ConfigureAwait(false);
             await Dispatcher.UIThread.InvokeAsync(() =>
             {
                 ReplacePolicemen(list);
@@ -370,7 +304,8 @@ public sealed partial class SettingsViewModel : ObservableObject
         }
         catch (Exception ex)
         {
-            await Dispatcher.UIThread.InvokeAsync(() => PoliceErrorMessage = FormatError(ex));
+            await Dispatcher.UIThread.InvokeAsync(
+                () => PoliceErrorMessage = ApiError.Describe(ex, "Request failed."));
         }
         finally
         {
@@ -378,12 +313,11 @@ public sealed partial class SettingsViewModel : ObservableObject
         }
     }
 
-    private async Task LoadPoliceAsync(string accessToken)
+    private async Task LoadPoliceAsync(CancellationToken ct)
     {
-        using var police = new PoliceApiClient(_apiBaseUrl);
-        var catalog = await police.ListPackagesAsync(accessToken).ConfigureAwait(false);
-        var list = await police.ListPolicemenAsync(accessToken).ConfigureAwait(false);
-        await EnsureStaffPoolAsync(accessToken).ConfigureAwait(false);
+        var catalog = await _api.ListPackagesAsync(ct).ConfigureAwait(false);
+        var list = await _api.ListPolicemenAsync(ct).ConfigureAwait(false);
+        await EnsureStaffPoolAsync(ct).ConfigureAwait(false);
         await Dispatcher.UIThread.InvokeAsync(() =>
         {
             _packageCatalog = catalog.ToList();
@@ -393,10 +327,9 @@ public sealed partial class SettingsViewModel : ObservableObject
         });
     }
 
-    private async Task EnsureStaffPoolAsync(string accessToken)
+    private async Task EnsureStaffPoolAsync(CancellationToken ct)
     {
-        using var org = new OrgApiClient(_apiBaseUrl);
-        var structure = await org.GetStructureAsync(accessToken).ConfigureAwait(false);
+        var structure = await _api.GetStructureAsync(ct).ConfigureAwait(false);
         var map = new Dictionary<Guid, StaffCardViewModel>();
         foreach (var s in structure.UnassignedStaff)
         {
@@ -442,183 +375,30 @@ public sealed partial class SettingsViewModel : ObservableObject
         }
     }
 
-    private void ApplyConfig(BusinessClockConfig cfg, BusinessTimeNowDto? now)
+    private void ApplyConfig(BusinessClockConfig cfg)
     {
-        _suppressTzSideEffects = true;
-        try
-        {
-            EnsureTimezoneOption(cfg.TimeZoneId);
-            SelectedTimeZoneId = string.IsNullOrWhiteSpace(cfg.TimeZoneId) ? "UTC" : cfg.TimeZoneId;
-            IsSynchronized = cfg.IsSynchronized;
-            ClockVersion = cfg.ClockVersion;
-            CurrentTimeZoneLabel = SelectedTimeZoneId;
-            var clock = new BusinessClock();
-            clock.Apply(cfg);
-            UpdatedAtLabel = BusinessTimeDisplay.FormatUtcInstant(cfg.UpdatedAt, clock)
-                             + $" ({SelectedTimeZoneId})";
-
-            if (now is not null && !string.IsNullOrWhiteSpace(now.BusinessLocal)
-                && DateTime.TryParse(now.BusinessLocal, CultureInfo.InvariantCulture,
-                    DateTimeStyles.AssumeLocal | DateTimeStyles.AllowWhiteSpaces, out var biz))
-            {
-                CurrentBusinessLocal = now.BusinessLocal;
-                SetDateParts(biz);
-            }
-            else if (cfg.IsSynchronized && cfg.AnchorBusinessLocal is { } anchor)
-            {
-                CurrentBusinessLocal = anchor.ToString("yyyy-MM-dd'T'HH:mm:ss", CultureInfo.InvariantCulture);
-                SetDateParts(anchor);
-            }
-            else
-            {
-                CurrentBusinessLocal = "Not synchronized";
-                ApplyWallClockSuggestion(SelectedTimeZoneId);
-            }
-        }
-        finally
-        {
-            _suppressTzSideEffects = false;
-        }
+        var id = string.IsNullOrWhiteSpace(cfg.TimeZoneId) ? "UTC" : cfg.TimeZoneId.Trim();
+        // The whole app reads company time from this one clock (§8.2).
+        _clock.Apply(cfg);
+        SelectedTimeZone = FindOrAddTimeZone(id);
+        CurrentTimeZoneLabel = id;
+        CurrentBusinessLocal = BusinessClock.TryResolveTimeZone(id, out _)
+            ? _clock.Now.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture)
+            : "Unknown time zone";
     }
 
-    private void ApplyWallClockSuggestion(string timeZoneId)
+    private TimeZoneOption FindOrAddTimeZone(string id)
     {
-        var tz = BusinessClock.ResolveTimeZone(timeZoneId);
-        var local = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, tz);
-        SetDateParts(local);
+        var existing = TimeZoneOptions.FirstOrDefault(
+            o => string.Equals(o.Id, id, StringComparison.OrdinalIgnoreCase));
+        if (existing is not null)
+        {
+            return existing;
+        }
+
+        var option = TimeZoneCatalog.Describe(id);
+        TimeZoneOptions.Insert(0, option);
+        return option;
     }
 
-    private void SetDateParts(DateTime local)
-    {
-        YearText = local.Year.ToString(CultureInfo.InvariantCulture);
-        MonthText = local.Month.ToString(CultureInfo.InvariantCulture);
-        DayText = local.Day.ToString(CultureInfo.InvariantCulture);
-        HourText = local.Hour.ToString(CultureInfo.InvariantCulture);
-        MinuteText = local.Minute.ToString(CultureInfo.InvariantCulture);
-        SecondText = local.Second.ToString(CultureInfo.InvariantCulture);
-    }
-
-    private bool TryReadDateTime(
-        out int year, out int month, out int day, out int hour, out int minute, out int second)
-    {
-        year = month = day = hour = minute = second = 0;
-        if (!int.TryParse(YearText, NumberStyles.Integer, CultureInfo.InvariantCulture, out year)
-            || !int.TryParse(MonthText, NumberStyles.Integer, CultureInfo.InvariantCulture, out month)
-            || !int.TryParse(DayText, NumberStyles.Integer, CultureInfo.InvariantCulture, out day)
-            || !int.TryParse(HourText, NumberStyles.Integer, CultureInfo.InvariantCulture, out hour)
-            || !int.TryParse(MinuteText, NumberStyles.Integer, CultureInfo.InvariantCulture, out minute)
-            || !int.TryParse(SecondText, NumberStyles.Integer, CultureInfo.InvariantCulture, out second))
-        {
-            return false;
-        }
-
-        try
-        {
-            _ = new DateTime(year, month, day, hour, minute, second);
-            return true;
-        }
-        catch (ArgumentOutOfRangeException)
-        {
-            return false;
-        }
-    }
-
-    private void SeedLocalNow() => ApplyWallClockSuggestion("UTC");
-
-    private void EnsureTimezoneOption(string? id)
-    {
-        if (string.IsNullOrWhiteSpace(id))
-        {
-            return;
-        }
-
-        if (!TimeZoneOptions.Contains(id))
-        {
-            TimeZoneOptions.Insert(0, id);
-        }
-    }
-
-    private static IEnumerable<string> BuildTimezoneOptions()
-    {
-        var list = new List<string>
-        {
-            "UTC",
-            "UTC+00:00",
-            "UTC+01:00",
-            "UTC+02:00",
-            "UTC+03:00",
-            "UTC+03:30",
-            "UTC+04:00",
-            "UTC+05:00",
-            "UTC+05:30",
-            "UTC+05:45",
-            "UTC+06:00",
-            "UTC+07:00",
-            "UTC+08:00",
-            "UTC+09:00",
-            "UTC+09:30",
-            "UTC+10:00",
-            "UTC+11:00",
-            "UTC+12:00",
-            "UTC-01:00",
-            "UTC-02:00",
-            "UTC-03:00",
-            "UTC-04:00",
-            "UTC-05:00",
-            "UTC-06:00",
-            "UTC-07:00",
-            "UTC-08:00",
-            "UTC-09:00",
-            "UTC-10:00",
-            "UTC-11:00",
-            "UTC-12:00"
-        };
-
-        try
-        {
-            foreach (var tz in TimeZoneInfo.GetSystemTimeZones().OrderBy(t => t.Id))
-            {
-                if (!list.Contains(tz.Id, StringComparer.OrdinalIgnoreCase))
-                {
-                    list.Add(tz.Id);
-                }
-            }
-        }
-        catch
-        {
-            // offsets-only is enough for PHASE5 fixed-offset design
-        }
-
-        return list;
-    }
-
-    private static string FormatError(Exception ex)
-    {
-        while (ex is AggregateException { InnerException: { } inner })
-        {
-            ex = inner;
-        }
-
-        if (ex is ApiClientException api)
-        {
-            foreach (var prefix in new[] { "BusinessTime API: ", "Police API: ", "Org API: " })
-            {
-                if (api.Message.StartsWith(prefix, StringComparison.Ordinal))
-                {
-                    return api.Message[prefix.Length..];
-                }
-            }
-
-            return api.Message;
-        }
-
-        return ex is HttpRequestException
-            ? "Could not reach the server."
-            : (string.IsNullOrWhiteSpace(ex.Message) ? "Request failed." : ex.Message);
-    }
-
-    private static string ResolveApiBase(string? apiBaseUrl)
-        => string.IsNullOrWhiteSpace(apiBaseUrl)
-            ? Environment.GetEnvironmentVariable("TEAMSCOP_API_BASE") ?? "https://teamscop.com"
-            : apiBaseUrl.TrimEnd('/');
 }

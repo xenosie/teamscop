@@ -1,15 +1,28 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
-
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>Teamscop.UninstallGuard</RootNamespace>
+    <AssemblyName>Teamscop.UninstallGuard</AssemblyName>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <BuiltInComInteropSupport>true</BuiltInComInteropSupport>
+    <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Avalonia" Version="11.3.12" />
+    <PackageReference Include="Avalonia.Desktop" Version="11.3.12" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="11.3.12" />
+    <PackageReference Include="Avalonia.Fonts.Inter" Version="11.3.12" />
+  </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\Teamscop.Engine.Auth\Teamscop.Engine.Auth.csproj" />
     <ProjectReference Include="..\Teamscop.Engine.Lifecycle\Teamscop.Engine.Lifecycle.csproj" />
+    <ProjectReference Include="..\Teamscop.Engine.Sync\Teamscop.Engine.Sync.csproj" />
+    <!-- §6.3 — the offline company-local clock (BusinessClock + BusinessClockStore) so the guard
+         derives the same time step as the server without re-implementing timezone resolution. -->
+    <ProjectReference Include="..\Teamscop.Engine.Tracking\Teamscop.Engine.Tracking.csproj" />
+    <ProjectReference Include="..\Teamscop.Engine.Usb\Teamscop.Engine.Usb.csproj" />
   </ItemGroup>
-
-  <PropertyGroup>
-    <OutputType>Exe</OutputType>
-    <TargetFramework>net8.0</TargetFramework>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <Nullable>enable</Nullable>
-  </PropertyGroup>
-
 </Project>

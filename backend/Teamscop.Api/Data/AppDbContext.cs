@@ -10,10 +10,10 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
     public DbSet<UsbSessionTicket> UsbSessionTickets => Set<UsbSessionTicket>();
     public DbSet<AgentEvent> AgentEvents => Set<AgentEvent>();
     public DbSet<StaffTrackingConfigEntity> StaffTrackingConfigs => Set<StaffTrackingConfigEntity>();
-    public DbSet<AgentSequenceState> AgentSequenceStates => Set<AgentSequenceState>();
     public DbSet<Team> Teams => Set<Team>();
     public DbSet<TeamMember> TeamMembers => Set<TeamMember>();
     public DbSet<PolicemanAuthorityGrant> PolicemanAuthorityGrants => Set<PolicemanAuthorityGrant>();
+    public DbSet<ApiClient> ApiClients => Set<ApiClient>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -24,13 +24,8 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             entity.Property(x => x.Name).HasMaxLength(200).IsRequired();
             entity.Property(x => x.AvatarUrl).HasMaxLength(500);
             entity.Property(x => x.TokenJti).IsRequired();
-            entity.Property(x => x.TokenVersion).HasDefaultValue(1);
             entity.Property(x => x.CreatedAt).IsRequired();
-            entity.Property(x => x.UninstallTotpSecret).HasMaxLength(128);
-            entity.Property(x => x.UninstallTotpEnabled).HasDefaultValue(false);
             entity.Property(x => x.BusinessTimeZoneId).HasMaxLength(100).HasDefaultValue("UTC");
-            entity.Property(x => x.BusinessClockVersion).HasDefaultValue(0L);
-            entity.Property(x => x.BusinessClockSynchronized).HasDefaultValue(false);
             entity.Property(x => x.OrgStructureVersion).HasDefaultValue(0L);
         });
 
@@ -45,8 +40,9 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             entity.Property(x => x.Role).HasConversion<string>().HasMaxLength(20);
             entity.Property(x => x.AvatarUrl).HasMaxLength(500);
             entity.Property(x => x.CreatedAt).IsRequired();
-            entity.Property(x => x.AccessTotpSecret).HasMaxLength(128);
-            entity.Property(x => x.AccessTotpEnabled).HasDefaultValue(false);
+            entity.Property(x => x.AccessTotpFailedAttempts).HasDefaultValue(0);
+            entity.Property(x => x.AccessTotpLastUsedStepUsb).HasDefaultValue(0L);
+            entity.Property(x => x.AccessTotpLastUsedStepUninstall).HasDefaultValue(0L);
             entity.Property(x => x.IsPoliceman).HasDefaultValue(false);
             entity.Property(x => x.AuthorityVersion).HasDefaultValue(0L);
             entity.HasIndex(x => x.CompanyId);
@@ -95,12 +91,10 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             entity.HasKey(x => x.Id);
             entity.Property(x => x.EventType).HasMaxLength(64).IsRequired();
             entity.Property(x => x.PayloadJson).IsRequired();
-            entity.Property(x => x.ChainHash).HasMaxLength(128);
-            entity.Property(x => x.BusinessTimeZoneId).HasMaxLength(100);
             entity.HasIndex(x => new { x.UserId, x.ClientEventId }).IsUnique();
             entity.HasIndex(x => new { x.CompanyId, x.OccurredAt });
-            entity.HasIndex(x => new { x.CompanyId, x.BusinessOccurredAt });
-            entity.HasIndex(x => new { x.UserId, x.VaultSequence });
+            entity.HasIndex(x => new { x.UserId, x.OccurredAt });
+            entity.HasIndex(x => new { x.UserId, x.EventType, x.OccurredAt });
             entity.HasIndex(x => x.EventType);
             entity.HasOne(x => x.Company)
                 .WithMany()
@@ -125,17 +119,6 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             entity.HasOne(x => x.Company)
                 .WithMany()
                 .HasForeignKey(x => x.CompanyId)
-                .OnDelete(DeleteBehavior.Cascade);
-        });
-
-        modelBuilder.Entity<AgentSequenceState>(entity =>
-        {
-            entity.ToTable("agent_sequence_states");
-            entity.HasKey(x => x.UserId);
-            entity.Property(x => x.LastChainHash).HasMaxLength(128);
-            entity.HasOne(x => x.User)
-                .WithOne()
-                .HasForeignKey<AgentSequenceState>(x => x.UserId)
                 .OnDelete(DeleteBehavior.Cascade);
         });
 
@@ -181,6 +164,22 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             entity.HasOne(x => x.StaffUser)
                 .WithMany(u => u.AuthorityGrants)
                 .HasForeignKey(x => x.StaffUserId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<ApiClient>(entity =>
+        {
+            entity.ToTable("api_clients");
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.Name).HasMaxLength(200).IsRequired();
+            entity.Property(x => x.KeyId).HasMaxLength(64).IsRequired();
+            entity.Property(x => x.SecretHash).HasMaxLength(500).IsRequired();
+            entity.Property(x => x.AllowedIps).HasMaxLength(2000);
+            // The key id is the lookup for every export request, so it is unique and indexed.
+            entity.HasIndex(x => x.KeyId).IsUnique();
+            entity.HasOne(x => x.Company)
+                .WithMany()
+                .HasForeignKey(x => x.CompanyId)
                 .OnDelete(DeleteBehavior.Cascade);
         });
     }

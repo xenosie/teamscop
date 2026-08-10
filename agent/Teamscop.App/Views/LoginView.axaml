@@ -1,0 +1,107 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:Teamscop.App.ViewModels"
+             xmlns:controls="clr-namespace:Teamscop.App.Controls"
+             x:Class="Teamscop.App.Views.LoginView"
+             x:DataType="vm:LoginViewModel"
+             Background="{StaticResource TsBackgroundBrush}">
+
+  <Panel>
+    <Grid ColumnDefinitions="*,Auto,*">
+      <Panel Grid.Column="0" ClipToBounds="True">
+        <Image Source="/Assets/auth-left-collab.png"
+               Stretch="UniformToFill"
+               HorizontalAlignment="Center"
+               VerticalAlignment="Center" />
+      </Panel>
+
+      <Border Grid.Column="1"
+              Width="1.5"
+              Background="{StaticResource TsAccentBrush}"
+              HorizontalAlignment="Center"
+              VerticalAlignment="Stretch" />
+
+      <ScrollViewer Grid.Column="2"
+                    Classes="ts-transparent-scroll"
+                    VerticalScrollBarVisibility="Auto"
+                    HorizontalScrollBarVisibility="Disabled"
+                    Padding="32,16">
+        <StackPanel Spacing="14" VerticalAlignment="Center">
+          <TextBlock Text="Sign in"
+                     FontSize="22"
+                     FontWeight="SemiBold"
+                     Foreground="{StaticResource TsTextBrush}" />
+          <TextBlock Text="This machine is already known to Teamscop. Enter your password to continue."
+                     Classes="ts-muted"
+                     FontSize="13"
+                     TextWrapping="Wrap" />
+
+          <!-- §3.2: the credential is device key + password; the key comes from the machine. -->
+          <StackPanel Spacing="6">
+            <TextBlock Text="Device key · this machine"
+                       FontSize="12" FontWeight="SemiBold"
+                       Foreground="{StaticResource TsTextMutedBrush}" />
+            <Border Classes="ts-box" Padding="10,8" IsVisible="{Binding HasDeviceKey}">
+              <TextBlock Text="{Binding DeviceKey}"
+                         FontFamily="Consolas, Menlo, monospace"
+                         FontSize="12"
+                         Foreground="{StaticResource TsTextBrush}"
+                         TextWrapping="Wrap" />
+            </Border>
+            <TextBlock Text="This machine's device key could not be read."
+                       Foreground="#B91C1C"
+                       FontSize="12"
+                       IsVisible="{Binding !HasDeviceKey}" />
+          </StackPanel>
+
+          <StackPanel Spacing="6">
+            <TextBlock Text="Password"
+                       FontSize="12" FontWeight="SemiBold"
+                       Foreground="{StaticResource TsTextMutedBrush}" />
+            <TextBox Classes="ts-field"
+                     Text="{Binding Password, Mode=TwoWay}"
+                     PasswordChar="•"
+                     Watermark="Password">
+              <TextBox.KeyBindings>
+                <KeyBinding Gesture="Enter" Command="{Binding SignInCommand}" />
+              </TextBox.KeyBindings>
+            </TextBox>
+          </StackPanel>
+
+          <TextBlock Text="{Binding ErrorMessage}"
+                     IsVisible="{Binding ShowError}"
+                     Foreground="#DC2626"
+                     FontSize="13"
+                     TextWrapping="Wrap" />
+
+          <Button Classes="ts-primary"
+                  Content="Sign in"
+                  Command="{Binding SignInCommand}"
+                  HorizontalAlignment="Stretch"
+                  HorizontalContentAlignment="Center"
+                  Height="44"
+                  IsEnabled="{Binding !IsBusy}"
+                  Margin="0,4,0,0" />
+
+          <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Center" Margin="0,8,0,0">
+            <TextBlock Text="Not registered on this machine?"
+                       Classes="ts-muted"
+                       FontSize="12"
+                       VerticalAlignment="Center" />
+            <Button Classes="ts-link"
+                    Content="Register or join a business"
+                    FontSize="12"
+                    Command="{Binding ShowEnrollCommand}" />
+          </StackPanel>
+        </StackPanel>
+      </ScrollViewer>
+    </Grid>
+
+    <Border IsVisible="{Binding IsBusy}"
+            IsHitTestVisible="{Binding IsBusy}"
+            Background="#80F8FAFC"
+            ZIndex="20">
+      <controls:TsSpinner HorizontalAlignment="Center" VerticalAlignment="Center" />
+    </Border>
+  </Panel>
+</UserControl>

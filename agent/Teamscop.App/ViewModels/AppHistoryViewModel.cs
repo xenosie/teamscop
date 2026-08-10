@@ -2,9 +2,9 @@ using System.Collections.ObjectModel;
 using System.Text.Json;
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
+using Teamscop.App.Composition;
 using Teamscop.App.Services;
-using Teamscop.Engine.Auth;
-using Teamscop.Engine.Lifecycle;
 using Teamscop.Engine.Sync;
 using Teamscop.Engine.Tracking;
 
@@ -22,17 +22,26 @@ public sealed partial class AppHistoryRowViewModel : ObservableObject
 
 public sealed partial class AppHistoryViewModel : ObservableObject
 {
-    private readonly LocalAgentStore _store;
-    private string _apiBaseUrl;
+    /// <summary>A long-lived machine has hundreds of lifecycle rows; show a page (§15.1).</summary>
+    private const int PageSize = 25;
+
+    private readonly TeamscopApi _api;
+    private readonly SessionStore _session;
+    private readonly CompanyClock _clock;
+    private readonly UiLog _log;
+    private readonly PageWindow<AppHistoryRowViewModel> _page;
     private Guid? _loadedForStaff;
     private DateTimeOffset? _loadedFromUtc;
     private DateTimeOffset? _loadedToUtc;
     private int _loadGeneration;
 
-    public AppHistoryViewModel(string? apiBaseUrl = null)
+    public AppHistoryViewModel(AppServices services)
     {
-        _store = AppSessionStore.ForActiveSession();
-        _apiBaseUrl = ResolveApiBase(apiBaseUrl);
+        _api = services.Api;
+        _session = services.Session;
+        _clock = services.Clock;
+        _log = services.Log;
+        _page = new PageWindow<AppHistoryRowViewModel>(Items, PageSize);
     }
 
     public ObservableCollection<AppHistoryRowViewModel> Items { get; } = [];
@@ -44,6 +53,32 @@ public sealed partial class AppHistoryViewModel : ObservableObject
     public bool HasItems => Items.Count > 0;
     public bool ShowEmpty => !IsLoading && string.IsNullOrWhiteSpace(ErrorMessage) && !HasItems;
     public bool ShowError => !IsLoading && !string.IsNullOrWhiteSpace(ErrorMessage);
+    public bool IsPaged => _page.IsPaged;
+    public bool HasMore => _page.HasMore;
+    public string PageLabel => _page.Label;
+
+    [RelayCommand]
+    private void ShowMore()
+    {
+        _page.More();
+        RaisePaging();
+    }
+
+    [RelayCommand]
+    private void ShowAll()
+    {
+        _page.All();
+        RaisePaging();
+    }
+
+    private void RaisePaging()
+    {
+        OnPropertyChanged(nameof(IsPaged));
+        OnPropertyChanged(nameof(HasMore));
+        OnPropertyChanged(nameof(PageLabel));
+        OnPropertyChanged(nameof(HasItems));
+        OnPropertyChanged(nameof(ShowEmpty));
+    }
 
     partial void OnIsLoadingChanged(bool value)
     {
@@ -63,18 +98,18 @@ public sealed partial class AppHistoryViewModel : ObservableObject
         _loadedForStaff = null;
         _loadedFromUtc = null;
         _loadedToUtc = null;
-        Items.Clear();
+        _page.Reset([]);
         ErrorMessage = null;
         EmptyMessage = null;
-        OnPropertyChanged(nameof(HasItems));
-        OnPropertyChanged(nameof(ShowEmpty));
+        RaisePaging();
     }
 
     public async Task LoadAsync(
         Guid staffUserId,
         bool force = false,
         DateTimeOffset? fromUtc = null,
-        DateTimeOffset? toUtc = null)
+        DateTimeOffset? toUtc = null,
+        CancellationToken ct = default)
     {
         if (!force
             && _loadedForStaff == staffUserId
@@ -86,22 +121,20 @@ public sealed partial class AppHistoryViewModel : ObservableObject
         }
 
         var generation = Interlocked.Increment(ref _loadGeneration);
-        var state = _store.Load();
-        if (string.IsNullOrWhiteSpace(state.AccessToken))
+        if (!_session.HasToken)
         {
             await Dispatcher.UIThread.InvokeAsync(() =>
             {
                 if (generation != _loadGeneration) return;
-                Items.Clear();
+                _page.Reset([]);
                 ErrorMessage = "Sign in required.";
                 EmptyMessage = null;
                 IsLoading = false;
-                OnPropertyChanged(nameof(HasItems));
+                RaisePaging();
             });
             return;
         }
 
-        _apiBaseUrl = ResolveApiBase(state.ApiBaseUrl);
         await Dispatcher.UIThread.InvokeAsync(() =>
         {
             IsLoading = true;
@@ -111,34 +144,16 @@ public sealed partial class AppHistoryViewModel : ObservableObject
 
         try
         {
-            var clock = new BusinessClock();
-            try
-            {
-                using var bizApi = new BusinessTimeApiClient(_apiBaseUrl);
-                var cfg = await bizApi.GetMineAsync(state.AccessToken).ConfigureAwait(false);
-                clock.Apply(cfg);
-            }
-            catch
-            {
-                // Fall back to payload / UTC formatting.
-            }
-
-            using var api = new TrackingApiClient(_apiBaseUrl);
             // Per-type fetch covers all PHASE9 lifecycle events even under dense tracking traffic.
-            var events = await api.QueryAppHistoryAsync(
-                    state.AccessToken, staffUserId, take: 300, from: fromUtc, to: toUtc)
+            var events = await _api.QueryAppHistoryAsync(
+                    staffUserId, take: 300, from: fromUtc, to: toUtc, ct)
                 .ConfigureAwait(false);
-            var rows = events.Select(e => ToRow(e, clock)).ToList();
+            var rows = events.Select(ToRow).ToList();
 
             await Dispatcher.UIThread.InvokeAsync(() =>
             {
                 if (generation != _loadGeneration) return;
-                Items.Clear();
-                foreach (var row in rows)
-                {
-                    Items.Add(row);
-                }
-
+                _page.Reset(rows);
                 _loadedForStaff = staffUserId;
                 _loadedFromUtc = fromUtc;
                 _loadedToUtc = toUtc;
@@ -149,27 +164,36 @@ public sealed partial class AppHistoryViewModel : ObservableObject
                     : null;
                 ErrorMessage = null;
                 IsLoading = false;
-                OnPropertyChanged(nameof(HasItems));
-                OnPropertyChanged(nameof(ShowEmpty));
+                RaisePaging();
+            });
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            // Cancelled by a newer selection or by leaving the route. Hand the section back rather
+            // than leaving the spinner up: a newer load owns the flag once the generation moves.
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                if (generation != _loadGeneration) return;
+                IsLoading = false;
             });
         }
         catch (Exception ex)
         {
+            _log.Warn($"App history for {staffUserId:D} could not be loaded", ex);
             await Dispatcher.UIThread.InvokeAsync(() =>
             {
                 if (generation != _loadGeneration) return;
-                Items.Clear();
-                ErrorMessage = FormatError(ex);
+                _page.Reset([]);
+                ErrorMessage = ApiError.Describe(ex, "Failed to load app history.");
                 EmptyMessage = null;
                 IsLoading = false;
                 _loadedForStaff = staffUserId;
-                OnPropertyChanged(nameof(HasItems));
-                OnPropertyChanged(nameof(ShowEmpty));
+                RaisePaging();
             });
         }
     }
 
-    private static AppHistoryRowViewModel ToRow(TrackingEventItem e, BusinessClock companyClock)
+    private AppHistoryRowViewModel ToRow(TrackingEventItem e)
     {
         var (title, detail) = Describe(e);
         return new AppHistoryRowViewModel
@@ -179,7 +203,7 @@ public sealed partial class AppHistoryViewModel : ObservableObject
             OccurredAt = e.OccurredAt,
             Title = title,
             Detail = detail,
-            TimeLabel = BusinessTimeDisplay.FormatEventTime(e, companyClock)
+            TimeLabel = _clock.FormatEventTime(e)
         };
     }
 
@@ -203,9 +227,12 @@ public sealed partial class AppHistoryViewModel : ObservableObject
                 AgentEventTypes.Uninstall => (
                     "Uninstall",
                     FormatUninstall(root)),
-                AgentEventTypes.AppBroken => (
-                    "App broken",
-                    FormatAppBroken(root)),
+                AgentEventTypes.Install => (
+                    "Installed",
+                    FormatInstall(root)),
+                AgentEventTypes.AppStatus => (
+                    "Status",
+                    FormatAppStatus(root)),
                 _ => (e.EventType, "Event recorded")
             };
         }
@@ -258,6 +285,36 @@ public sealed partial class AppHistoryViewModel : ObservableObject
         return "Staff account created";
     }
 
+    private static string FormatInstall(JsonElement root)
+    {
+        var stamp = ReadString(root, "stamp", "Stamp");
+        return string.IsNullOrWhiteSpace(stamp)
+            ? "Product installed or upgraded"
+            : $"Product installed · build {stamp}";
+    }
+
+    /// <summary>
+    /// The four-state transitions, in plain words. "broken → components_missing:Teamscop.App.exe"
+    /// is the row the owner reads when a machine was intentionally damaged, so the reason is shown
+    /// verbatim rather than summarised away.
+    /// </summary>
+    private static string FormatAppStatus(JsonElement root)
+    {
+        var status = ReadString(root, "status", "Status") ?? "unknown";
+        var previous = ReadString(root, "previous", "Previous");
+        var reason = ReadString(root, "reason", "Reason");
+        var label = status switch
+        {
+            "online" => "Online",
+            "offline" => "Offline",
+            "broken" => "BROKEN",
+            "uninstalled" => "Uninstalled / not installed",
+            _ => status
+        };
+        var arrow = string.IsNullOrWhiteSpace(previous) ? label : $"{previous} → {label}";
+        return string.IsNullOrWhiteSpace(reason) ? arrow : $"{arrow} · {reason.Replace('_', ' ')}";
+    }
+
     private static string FormatPowerOff(JsonElement root)
     {
         var reason = ReadString(root, "reason", "Reason");
@@ -303,44 +360,6 @@ public sealed partial class AppHistoryViewModel : ObservableObject
             : $"Uninstall ticket consumed · {ticket}";
     }
 
-    private static string FormatAppBroken(JsonElement root)
-    {
-        var parts = new List<string>();
-        if (root.TryGetProperty("missing", out var missing) && missing.ValueKind == JsonValueKind.Array)
-        {
-            var names = missing.EnumerateArray()
-                .Select(x => x.GetString())
-                .Where(x => !string.IsNullOrWhiteSpace(x))
-                .Take(3)
-                .ToList();
-            if (names.Count > 0)
-            {
-                parts.Add("Missing: " + string.Join(", ", names));
-            }
-        }
-
-        if (root.TryGetProperty("altered", out var altered) && altered.ValueKind == JsonValueKind.Array)
-        {
-            var names = altered.EnumerateArray()
-                .Select(x => x.GetString())
-                .Where(x => !string.IsNullOrWhiteSpace(x))
-                .Take(3)
-                .ToList();
-            if (names.Count > 0)
-            {
-                parts.Add("Altered: " + string.Join(", ", names));
-            }
-        }
-
-        var rootPath = ReadString(root, "installRoot", "InstallRoot");
-        if (!string.IsNullOrWhiteSpace(rootPath) && parts.Count == 0)
-        {
-            parts.Add(rootPath);
-        }
-
-        return parts.Count > 0 ? string.Join(" · ", parts) : "Install integrity incident";
-    }
-
     private static string? ReadString(JsonElement root, params string[] names)
     {
         foreach (var name in names)
@@ -358,27 +377,4 @@ public sealed partial class AppHistoryViewModel : ObservableObject
         return null;
     }
 
-    private static string FormatError(Exception ex)
-    {
-        while (ex is AggregateException { InnerException: { } inner })
-        {
-            ex = inner;
-        }
-
-        if (ex is ApiClientException api)
-        {
-            var msg = api.Message;
-            const string prefix = "Tracking API: ";
-            return msg.StartsWith(prefix, StringComparison.Ordinal) ? msg[prefix.Length..] : msg;
-        }
-
-        return ex is HttpRequestException
-            ? "Could not reach the server."
-            : (string.IsNullOrWhiteSpace(ex.Message) ? "Failed to load app history." : ex.Message);
-    }
-
-    private static string ResolveApiBase(string? apiBaseUrl)
-        => string.IsNullOrWhiteSpace(apiBaseUrl)
-            ? Environment.GetEnvironmentVariable("TEAMSCOP_API_BASE") ?? "https://teamscop.com"
-            : apiBaseUrl.TrimEnd('/');
 }

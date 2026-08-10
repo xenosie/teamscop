@@ -5,6 +5,7 @@ using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Media;
 using Avalonia.Threading;
+using Teamscop.App.Composition;
 using Teamscop.App.Services;
 using Teamscop.App.ViewModels;
 using Teamscop.Engine.Lifecycle;
@@ -19,21 +20,36 @@ public partial class TimeTrackStickerWindow : Window
     private DispatcherTimer? _positionSaveTimer;
 
     public TimeTrackStickerWindow()
-        : this(AppSessionStore.ForActiveSession().Load())
+        : this(AppServices.Current.Session.State)
     {
     }
 
     public TimeTrackStickerWindow(LocalAgentState state)
     {
         InitializeComponent();
-        _vm = new TimeTrackStickerViewModel(state);
+        _vm = new TimeTrackStickerViewModel(AppServices.Current, state);
         DataContext = _vm;
         _vm.PropertyChanged += OnVmPropertyChanged;
         _vm.Segments.CollectionChanged += OnSegmentsChanged;
 
+        // Hiding is a window-level concern, so the view owns it. Hide(), never Close(): the view
+        // model keeps refreshing and the sticker comes back at next sign-in.
+        _vm.HideRequested = Hide;
+
         Opened += OnOpened;
-        StaffShellLifetime.AttachStickerStayAlive(this);
+        // The sticker outlives every window: it is the staff member's proof the engine runs (§14.4).
+        Closing += (_, e) => e.Cancel = true;
         PositionChanged += (_, _) => QueuePersistPosition();
+    }
+
+    /// <summary>
+    /// Double-click brings the workspace back after a close hid it (§4.6). The right-click menu's
+    /// "Open Teamscop" runs the same delegate rather than reaching for the window itself.
+    /// </summary>
+    public Action? RequestOpenShell
+    {
+        get => _vm.OpenShellRequested;
+        init => _vm.OpenShellRequested = value;
     }
 
     private async void OnOpened(object? sender, EventArgs e)
@@ -47,6 +63,12 @@ public partial class TimeTrackStickerWindow : Window
     {
         if (!e.GetCurrentPoint(this).Properties.IsLeftButtonPressed)
         {
+            return;
+        }
+
+        if (e.ClickCount >= 2)
+        {
+            _vm.OpenShellRequested?.Invoke();
             return;
         }
 
@@ -102,7 +124,7 @@ public partial class TimeTrackStickerWindow : Window
 
     private void OnVmPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (e.PropertyName is nameof(TimeTrackStickerViewModel.HasTimeline))
+        if (e.PropertyName is nameof(TimeTrackStickerViewModel.ShowBar))
         {
             QueueRebuild();
         }

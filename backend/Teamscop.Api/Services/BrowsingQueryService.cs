@@ -1,7 +1,8 @@
-using System.Globalization;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Teamscop.Api.Data;
+using Teamscop.Api.Services.Access;
+using Teamscop.Api.Services.Insights;
 using Teamscop.Engine.Sync;
 using Teamscop.Engine.Tracking;
 
@@ -69,7 +70,7 @@ public interface IBrowsingQueryService
 
 public sealed class BrowsingQueryService(
     AppDbContext db,
-    IAuthorityService authorities) : IBrowsingQueryService
+    IStaffDataGuard guard) : IBrowsingQueryService
 {
     public async Task<IReadOnlyList<BrowsingDomainSummaryDto>> ListDomainsAsync(
         Guid viewerId,
@@ -79,9 +80,9 @@ public sealed class BrowsingQueryService(
         int takeEvents,
         CancellationToken ct)
     {
-        await EnsureCanViewAsync(viewerId, staffUserId, ct);
+        await RequireAsync(viewerId, staffUserId, ct);
         var visits = await LoadVisitsAsync(staffUserId, from, to, takeEvents, ct);
-        var groups = visits
+        return visits
             .GroupBy(v => v.Domain, StringComparer.OrdinalIgnoreCase)
             .Where(g => !string.IsNullOrWhiteSpace(g.Key))
             .Select(g => new BrowsingDomainSummaryDto
@@ -93,7 +94,6 @@ public sealed class BrowsingQueryService(
             .OrderByDescending(x => x.VisitCount)
             .ThenBy(x => x.Domain, StringComparer.OrdinalIgnoreCase)
             .ToList();
-        return groups;
     }
 
     public async Task<BrowsingDomainDetailDto?> GetDomainDetailAsync(
@@ -105,7 +105,7 @@ public sealed class BrowsingQueryService(
         int takeEvents,
         CancellationToken ct)
     {
-        await EnsureCanViewAsync(viewerId, staffUserId, ct);
+        await RequireAsync(viewerId, staffUserId, ct);
         var normalized = NormalizeDomainKey(domain);
         if (string.IsNullOrWhiteSpace(normalized))
         {
@@ -143,7 +143,7 @@ public sealed class BrowsingQueryService(
         int takeEvents,
         CancellationToken ct)
     {
-        await EnsureCanViewAsync(viewerId, staffUserId, ct);
+        await RequireAsync(viewerId, staffUserId, ct);
         takeUrls = Math.Clamp(takeUrls <= 0 ? 3 : takeUrls, 1, 20);
         var visits = await LoadVisitsAsync(staffUserId, from, to, takeEvents, ct);
         return visits
@@ -155,7 +155,7 @@ public sealed class BrowsingQueryService(
                 return new BrowsingTopUrlDto
                 {
                     Url = g.Key,
-                    Title = latest.Title ?? "",
+                    Title = latest.Title,
                     VisitCount = g.Count(),
                     LastVisitedAt = g.Max(x => x.VisitedAt)
                 };
@@ -166,18 +166,8 @@ public sealed class BrowsingQueryService(
             .ToList();
     }
 
-    private async Task EnsureCanViewAsync(Guid viewerId, Guid staffUserId, CancellationToken ct)
-    {
-        if (!await authorities.CanViewStaffAsync(viewerId, staffUserId, ct))
-        {
-            throw new UnauthorizedAccessException("Not allowed to view this staff member's tracking data.");
-        }
-
-        if (!await authorities.CanViewEventTypeAsync(viewerId, AgentEventTypes.BrowserHistory, ct))
-        {
-            throw new UnauthorizedAccessException("Missing authority package for browsing history.");
-        }
-    }
+    private Task RequireAsync(Guid viewerId, Guid staffUserId, CancellationToken ct)
+        => guard.RequireViewableAsync(viewerId, staffUserId, AgentEventTypes.BrowserHistory, ct);
 
     private async Task<List<ParsedVisit>> LoadVisitsAsync(
         Guid staffUserId,
@@ -187,20 +177,11 @@ public sealed class BrowsingQueryService(
         CancellationToken ct)
     {
         takeEvents = Math.Clamp(takeEvents <= 0 ? 200 : takeEvents, 1, 500);
-        var q = db.AgentEvents.AsNoTracking()
-            .Where(e => e.UserId == staffUserId && e.EventType == AgentEventTypes.BrowserHistory);
-        if (from is not null)
-        {
-            q = q.Where(e => e.OccurredAt >= from);
-        }
-
-        if (to is not null)
-        {
-            q = q.Where(e => e.OccurredAt < to);
-        }
-
-        var rows = await q.OrderByDescending(e => e.OccurredAt)
-            .Take(takeEvents)
+        var rows = await db.AgentEvents.AsNoTracking()
+            .ForStaff(staffUserId)
+            .OfType(AgentEventTypes.BrowserHistory)
+            .InPeriod(from, to)
+            .Newest(takeEvents)
             .Select(e => e.PayloadJson)
             .ToListAsync(ct);
 
@@ -219,14 +200,9 @@ public sealed class BrowsingQueryService(
 
     private static IEnumerable<ParsedVisit> ParseVisits(string payloadJson)
     {
-        using var innerDoc = OpenInnerDocument(payloadJson);
-        if (innerDoc is null)
-        {
-            yield break;
-        }
-
-        var root = innerDoc.RootElement;
-        if (!root.TryGetProperty("visits", out var visits)
+        using var innerDoc = AgentEventPayload.TryOpen(payloadJson, "visits");
+        if (innerDoc is null
+            || !innerDoc.RootElement.TryGetProperty("visits", out var visits)
             || visits.ValueKind != JsonValueKind.Array)
         {
             yield break;
@@ -234,7 +210,7 @@ public sealed class BrowsingQueryService(
 
         foreach (var v in visits.EnumerateArray())
         {
-            var url = ReadString(v, "Url", "url") ?? "";
+            var url = AgentEventPayload.String(v, "Url", "url") ?? "";
             if (string.IsNullOrWhiteSpace(url))
             {
                 continue;
@@ -252,10 +228,10 @@ public sealed class BrowsingQueryService(
             {
                 Domain = domain,
                 Url = url,
-                Title = ReadString(v, "Title", "title") ?? "",
-                Profile = ReadString(v, "Profile", "profile") ?? "",
-                VisitedAt = ReadDate(v, "VisitedAt", "visitedAt") ?? DateTimeOffset.MinValue,
-                VisitId = ReadLong(v, "VisitId", "visitId")
+                Title = AgentEventPayload.String(v, "Title", "title") ?? "",
+                Profile = AgentEventPayload.String(v, "Profile", "profile") ?? "",
+                VisitedAt = AgentEventPayload.Date(v, "VisitedAt", "visitedAt") ?? DateTimeOffset.MinValue,
+                VisitId = AgentEventPayload.Long(v, "VisitId", "visitId")
             };
         }
     }
@@ -275,107 +251,6 @@ public sealed class BrowsingQueryService(
         }
 
         return BrowseDomain.FromUrl("https://" + d.Trim().Trim('/'));
-    }
-
-    private static JsonDocument? OpenInnerDocument(string payloadJson)
-    {
-        if (string.IsNullOrWhiteSpace(payloadJson))
-        {
-            return null;
-        }
-
-        using var outer = JsonDocument.Parse(payloadJson);
-        var root = outer.RootElement;
-        if (root.TryGetProperty("payloadBase64", out var pb)
-            && pb.ValueKind == JsonValueKind.String)
-        {
-            var b64 = pb.GetString();
-            if (string.IsNullOrWhiteSpace(b64))
-            {
-                return null;
-            }
-
-            try
-            {
-                return JsonDocument.Parse(Convert.FromBase64String(b64));
-            }
-            catch (Exception ex) when (ex is FormatException or JsonException)
-            {
-                return null;
-            }
-        }
-
-        if (root.TryGetProperty("visits", out _))
-        {
-            return JsonDocument.Parse(payloadJson);
-        }
-
-        return null;
-    }
-
-    private static string? ReadString(JsonElement el, params string[] names)
-    {
-        foreach (var name in names)
-        {
-            if (el.TryGetProperty(name, out var p) && p.ValueKind == JsonValueKind.String)
-            {
-                return p.GetString();
-            }
-        }
-
-        return null;
-    }
-
-    private static long? ReadLong(JsonElement el, params string[] names)
-    {
-        foreach (var name in names)
-        {
-            if (!el.TryGetProperty(name, out var p))
-            {
-                continue;
-            }
-
-            if (p.ValueKind == JsonValueKind.Number && p.TryGetInt64(out var n))
-            {
-                return n;
-            }
-
-            if (p.ValueKind == JsonValueKind.String
-                && long.TryParse(p.GetString(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed))
-            {
-                return parsed;
-            }
-        }
-
-        return null;
-    }
-
-    private static DateTimeOffset? ReadDate(JsonElement el, params string[] names)
-    {
-        foreach (var name in names)
-        {
-            if (!el.TryGetProperty(name, out var p))
-            {
-                continue;
-            }
-
-            if (p.ValueKind == JsonValueKind.String
-                && DateTimeOffset.TryParse(p.GetString(), CultureInfo.InvariantCulture,
-                    DateTimeStyles.RoundtripKind, out var dto))
-            {
-                return dto;
-            }
-
-            if (p.ValueKind == JsonValueKind.Number && p.TryGetInt64(out var unix))
-            {
-                // Heuristic: seconds vs ms
-                return unix > 10_000_000_000
-                    ? DateTimeOffset.FromUnixTimeMilliseconds(unix)
-                    : DateTimeOffset.FromUnixTimeSeconds(unix);
-            }
-        }
-
-        return null;
     }
 
     private sealed class ParsedVisit

@@ -3,7 +3,13 @@
   <PropertyGroup>
     <TargetFramework>net8.0</TargetFramework>
     <Nullable>enable</Nullable>
+    <!-- The Worker SDK defaults to server GC, which pre-reserves a heap per core — tens of MB of
+         RAM for a service that ticks once every 30 seconds. Workstation GC fits the §15.2 cheap-
+         hardware constraint; concurrent off saves the dedicated GC thread as well. -->
+    <ServerGarbageCollection>false</ServerGarbageCollection>
+    <ConcurrentGarbageCollection>false</ConcurrentGarbageCollection>
     <ImplicitUsings>enable</ImplicitUsings>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
     <UserSecretsId>dotnet-Teamscop.StaffService-c29e64db-cd8d-4d7f-9c7c-61f97d0e883d</UserSecretsId>
   </PropertyGroup>
 

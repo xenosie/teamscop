@@ -1,0 +1,104 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="Teamscop.Setup.Ui.InstallerWindow"
+        Title="Teamscop Setup"
+        Icon="avares://Teamscop_setup/Assets/teamscop-icon.ico"
+        Width="580" Height="420"
+        CanResize="False"
+        WindowStartupLocation="CenterScreen"
+        SystemDecorations="None"
+        Background="Transparent"
+        TransparencyLevelHint="Transparent">
+
+  <!-- The product's own visual language: #2563EB accent on #F8FAFC, square corners, flat. The
+       install is the one moment every employee looks straight at Teamscop, so it looks like
+       Teamscop — not like a stock message box. -->
+  <Border Background="#F8FAFC" BorderBrush="#2563EB" BorderThickness="1.5">
+    <Grid RowDefinitions="Auto,*,Auto">
+
+      <!-- Title bar (drag handle) -->
+      <Border Grid.Row="0" Background="#2563EB" Height="64"
+              PointerPressed="OnDragPressed">
+        <Grid ColumnDefinitions="Auto,*,Auto" Margin="20,0">
+          <Border Grid.Column="0" Width="36" Height="36" Background="White"
+                  VerticalAlignment="Center" Padding="3">
+            <Image Source="avares://Teamscop_setup/Assets/teamscop-icon-128.png"
+                   Stretch="Uniform" />
+          </Border>
+          <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="14,0,0,0" Spacing="2">
+            <TextBlock Text="Teamscop" FontSize="18" FontWeight="Bold" Foreground="White" />
+            <TextBlock Name="VersionText" FontSize="11" Foreground="#BFDBFE" />
+          </StackPanel>
+          <Button Grid.Column="2" Name="CloseButton"
+                  Width="34" Height="34"
+                  Background="Transparent" BorderThickness="0"
+                  VerticalAlignment="Center"
+                  Click="OnCloseClicked">
+            <TextBlock Text="✕" FontSize="14" Foreground="White"
+                       HorizontalAlignment="Center" VerticalAlignment="Center" />
+          </Button>
+        </Grid>
+      </Border>
+
+      <!-- Body -->
+      <Grid Grid.Row="1" ColumnDefinitions="200,*">
+
+        <!-- Step checklist -->
+        <Border Grid.Column="0" Background="#EFF6FF" Padding="20,24">
+          <StackPanel Name="StepList" Spacing="14" />
+        </Border>
+
+        <!-- Progress panel -->
+        <StackPanel Grid.Column="1" Margin="28,30,28,0" Spacing="14">
+          <TextBlock Name="StageTitle" Text="Preparing…"
+                     FontSize="20" FontWeight="SemiBold" Foreground="#0F172A" />
+          <TextBlock Name="StageDetail" Text=""
+                     FontSize="12" Foreground="#64748B"
+                     TextTrimming="CharacterEllipsis" />
+
+          <Grid ColumnDefinitions="*,Auto" Margin="0,10,0,0">
+            <ProgressBar Name="Progress" Height="10" Minimum="0" Maximum="100"
+                         Foreground="#2563EB" Background="#E2E8F0"
+                         CornerRadius="0" />
+            <TextBlock Grid.Column="1" Name="PercentText" Text="0%"
+                       Margin="12,0,0,0" FontSize="13" FontWeight="SemiBold"
+                       Foreground="#2563EB" VerticalAlignment="Center" />
+          </Grid>
+
+          <!-- Done state -->
+          <StackPanel Name="DonePanel" IsVisible="False" Spacing="10" Margin="0,12,0,0">
+            <TextBlock Text="✓ Installed successfully"
+                       FontSize="16" FontWeight="SemiBold" Foreground="#16A34A" />
+            <TextBlock Text="Click Finish to open Teamscop. Register your business, or join with your company token."
+                       FontSize="12" Foreground="#64748B" TextWrapping="Wrap" />
+          </StackPanel>
+
+          <!-- Error state -->
+          <StackPanel Name="ErrorPanel" IsVisible="False" Spacing="10" Margin="0,12,0,0">
+            <TextBlock Text="Setup could not finish"
+                       FontSize="16" FontWeight="SemiBold" Foreground="#DC2626" />
+            <TextBlock Name="ErrorText" FontSize="12" Foreground="#64748B" TextWrapping="Wrap"
+                       MaxHeight="90" />
+          </StackPanel>
+        </StackPanel>
+      </Grid>
+
+      <!-- Footer -->
+      <Border Grid.Row="2" Background="#F1F5F9" Height="64" Padding="28,0">
+        <Grid ColumnDefinitions="*,Auto">
+          <TextBlock Name="FooterText" Text="Do not switch off the PC during installation."
+                     FontSize="11" Foreground="#94A3B8" VerticalAlignment="Center" />
+          <Button Grid.Column="1" Name="ActionButton"
+                  MinWidth="130" Height="38"
+                  Background="#2563EB" Foreground="White"
+                  BorderThickness="0" CornerRadius="0"
+                  HorizontalContentAlignment="Center"
+                  IsVisible="False"
+                  Click="OnActionClicked">
+            <TextBlock Name="ActionText" Text="Finish" FontWeight="SemiBold" />
+          </Button>
+        </Grid>
+      </Border>
+    </Grid>
+  </Border>
+</Window>

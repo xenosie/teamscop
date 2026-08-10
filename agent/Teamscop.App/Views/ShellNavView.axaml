@@ -1,0 +1,139 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:Teamscop.App.ViewModels"
+             xmlns:views="clr-namespace:Teamscop.App.Views"
+             xmlns:heroIcons="clr-namespace:HeroIconsAvalonia.Controls;assembly=HeroIconsAvalonia"
+             x:Class="Teamscop.App.Views.ShellNavView"
+             x:Name="NavRoot"
+             x:DataType="vm:ShellViewModel">
+
+  <Border Width="220"
+          Background="{StaticResource TsSurfaceBrush}"
+          BorderBrush="{StaticResource TsAccentBrush}"
+          BorderThickness="0,0,1,0">
+    <DockPanel>
+      <!-- Identity: company, then who you are and what you hold -->
+      <StackPanel DockPanel.Dock="Top"
+                  Spacing="8"
+                  Margin="0,20,0,16"
+                  HorizontalAlignment="Center">
+        <Panel Width="96" Height="96" HorizontalAlignment="Center">
+          <Ellipse Width="96" Height="96"
+                   Stroke="{StaticResource TsAccentBrush}"
+                   StrokeThickness="1.5"
+                   Fill="Transparent" />
+          <Border Width="84" Height="84"
+                  Classes="ts-circle-avatar"
+                  ClipToBounds="True"
+                  HorizontalAlignment="Center"
+                  VerticalAlignment="Center">
+            <Border.Background>
+              <LinearGradientBrush StartPoint="0%,0%" EndPoint="100%,100%">
+                <GradientStop Color="#DBEAFE" Offset="0" />
+                <GradientStop Color="#93C5FD" Offset="1" />
+              </LinearGradientBrush>
+            </Border.Background>
+            <Panel>
+              <heroIcons:HeroIcon Type="BuildingOffice2" Kind="Outline" Width="30" Height="30"
+                                  Foreground="{StaticResource TsAccentBrush}"
+                                  HorizontalAlignment="Center"
+                                  VerticalAlignment="Center"
+                                  IsVisible="{Binding !Identity.HasCompanyAvatar}" />
+              <Image Source="{Binding Identity.CompanyAvatar}"
+                     Stretch="UniformToFill"
+                     IsVisible="{Binding Identity.HasCompanyAvatar}" />
+            </Panel>
+          </Border>
+        </Panel>
+
+        <TextBlock Text="{Binding Identity.CompanyName}"
+                   FontSize="15"
+                   FontWeight="SemiBold"
+                   Foreground="{StaticResource TsTextBrush}"
+                   HorizontalAlignment="Center"
+                   TextAlignment="Center"
+                   TextWrapping="Wrap"
+                   MaxWidth="196" />
+
+        <Border Background="{StaticResource TsAccentSoftBrush}"
+                BorderBrush="{StaticResource TsAccentBrush}"
+                BorderThickness="1"
+                Padding="10,4"
+                HorizontalAlignment="Center">
+          <TextBlock Text="{Binding Identity.RoleLabel}"
+                     FontSize="11"
+                     FontWeight="SemiBold"
+                     Foreground="{StaticResource TsAccentBrush}" />
+        </Border>
+
+        <TextBlock Text="{Binding Identity.TeamName}"
+                   Classes="ts-muted"
+                   FontSize="12"
+                   HorizontalAlignment="Center"
+                   IsVisible="{Binding Identity.HasTeamName}"
+                   TextTrimming="CharacterEllipsis"
+                   MaxWidth="196" />
+
+        <TextBlock Text="{Binding Identity.Subtitle}"
+                   Classes="ts-muted"
+                   FontSize="11"
+                   HorizontalAlignment="Center"
+                   TextAlignment="Center"
+                   TextWrapping="Wrap"
+                   MaxWidth="196"
+                   Margin="8,2,8,0" />
+      </StackPanel>
+
+      <!-- Routes. Selection is a binding, so there is no imperative RefreshSidebar pass. -->
+      <ScrollViewer Classes="ts-transparent-scroll"
+                    VerticalScrollBarVisibility="Auto"
+                    HorizontalScrollBarVisibility="Disabled">
+      <ItemsControl ItemsSource="{Binding VisibleRoutes}">
+        <ItemsControl.ItemTemplate>
+          <DataTemplate x:DataType="vm:ShellRouteViewModel">
+            <StackPanel Spacing="0">
+              <Grid>
+                <Button Classes="ts-sidebar"
+                        Classes.selected="{Binding IsActive}"
+                        Padding="18,12,40,12"
+                        Command="{Binding #NavRoot.((vm:ShellViewModel)DataContext).NavigateCommand}"
+                        CommandParameter="{Binding}">
+                  <StackPanel Orientation="Horizontal" Spacing="12">
+                    <heroIcons:HeroIcon Type="{Binding Icon}" Kind="Outline" Width="20" Height="20"
+                                        Foreground="{Binding IconBrush}" />
+                    <TextBlock Text="{Binding Label}" VerticalAlignment="Center" FontWeight="SemiBold" />
+                  </StackPanel>
+                </Button>
+
+                <Button Classes="ts-link"
+                        Width="36" Height="40"
+                        HorizontalAlignment="Right"
+                        VerticalAlignment="Center"
+                        Margin="0,0,6,0"
+                        IsVisible="{Binding IsStaffRoute}"
+                        Command="{Binding #NavRoot.((vm:ShellViewModel)DataContext).ToggleStaffListCommand}"
+                        ToolTip.Tip="Show staff">
+                  <Panel Width="16" Height="16">
+                    <heroIcons:HeroIcon Type="ChevronDown" Kind="Outline" Width="16" Height="16"
+                                        Foreground="{Binding IconBrush}"
+                                        IsVisible="{Binding !#NavRoot.((vm:ShellViewModel)DataContext).StaffDirectory.IsExpanded}" />
+                    <heroIcons:HeroIcon Type="ChevronUp" Kind="Outline" Width="16" Height="16"
+                                        Foreground="{Binding IconBrush}"
+                                        IsVisible="{Binding #NavRoot.((vm:ShellViewModel)DataContext).StaffDirectory.IsExpanded}" />
+                  </Panel>
+                </Button>
+              </Grid>
+
+              <!-- The wrapper carries the route-scoped binding; the view rebinds its own scope. -->
+              <Panel IsVisible="{Binding IsStaffRoute}">
+                <views:StaffDirectoryView
+                    DataContext="{Binding #NavRoot.((vm:ShellViewModel)DataContext).StaffDirectory}" />
+              </Panel>
+            </StackPanel>
+          </DataTemplate>
+        </ItemsControl.ItemTemplate>
+      </ItemsControl>
+      </ScrollViewer>
+    </DockPanel>
+  </Border>
+</UserControl>

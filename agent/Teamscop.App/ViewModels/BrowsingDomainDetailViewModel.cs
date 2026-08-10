@@ -1,48 +1,53 @@
 using System.Collections.ObjectModel;
-using System.Globalization;
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
+using Teamscop.App.Composition;
 using Teamscop.App.Services;
-using Teamscop.Engine.Auth;
-using Teamscop.Engine.Lifecycle;
 using Teamscop.Engine.Tracking;
 
 namespace Teamscop.App.ViewModels;
 
-public sealed partial class BrowsingVisitRowViewModel : ObservableObject
+public sealed class BrowsingVisitRowViewModel
 {
-    public BrowsingVisitRowViewModel(BrowsingVisitItem item)
+    public BrowsingVisitRowViewModel(BrowsingVisitItem item, CompanyClock clock)
     {
         Url = item.Url;
         Title = string.IsNullOrWhiteSpace(item.Title) ? item.Url : item.Title;
         Profile = item.Profile;
-        TimeLabel = item.VisitedAt.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture);
+        VisitedAtUtc = item.VisitedAt;
+        TimeLabel = clock.FormatDateTime(item.VisitedAt);
     }
 
     public string Url { get; }
     public string Title { get; }
     public string Profile { get; }
+    public DateTimeOffset VisitedAtUtc { get; }
     public string TimeLabel { get; }
 }
 
 public sealed partial class BrowsingDomainDetailViewModel : ObservableObject
 {
-    private readonly LocalAgentStore _store;
-    private readonly string _apiBaseUrl;
+    private readonly TeamscopApi _api;
+    private readonly SessionStore _session;
+    private readonly CompanyClock _clock;
+    private readonly UiLog _log;
     private readonly Guid _staffUserId;
     private readonly string _domain;
     private readonly DateTimeOffset? _fromUtc;
     private readonly DateTimeOffset? _toUtc;
+    private int _visitCount;
 
     public BrowsingDomainDetailViewModel(
+        AppServices services,
         string domain,
         Guid staffUserId,
         DateTimeOffset? fromUtc,
-        DateTimeOffset? toUtc,
-        string? apiBaseUrl = null)
+        DateTimeOffset? toUtc)
     {
-        _store = AppSessionStore.ForActiveSession();
-        _apiBaseUrl = ResolveApiBase(apiBaseUrl);
+        _api = services.Api;
+        _session = services.Session;
+        _clock = services.Clock;
+        _log = services.Log;
         _staffUserId = staffUserId;
         _domain = domain;
         _fromUtc = fromUtc;
@@ -50,14 +55,15 @@ public sealed partial class BrowsingDomainDetailViewModel : ObservableObject
         Title = domain;
     }
 
-    public ObservableCollection<BrowsingVisitRowViewModel> Visits { get; } = [];
+    /// <summary>Visits newest-first.</summary>
+    public ObservableCollection<BrowsingVisitRowViewModel> Rows { get; } = [];
 
     [ObservableProperty] private string _title = "";
     [ObservableProperty] private string _subtitle = "";
     [ObservableProperty] private bool _isLoading = true;
     [ObservableProperty] private string? _errorMessage;
 
-    public bool HasItems => Visits.Count > 0;
+    public bool HasItems => _visitCount > 0;
     public bool ShowError => !IsLoading && !string.IsNullOrWhiteSpace(ErrorMessage);
     public bool ShowEmpty => !IsLoading && string.IsNullOrWhiteSpace(ErrorMessage) && !HasItems;
 
@@ -74,10 +80,9 @@ public sealed partial class BrowsingDomainDetailViewModel : ObservableObject
         OnPropertyChanged(nameof(ShowEmpty));
     }
 
-    public async Task LoadAsync()
+    public async Task LoadAsync(CancellationToken ct = default)
     {
-        var state = _store.Load();
-        if (string.IsNullOrWhiteSpace(state.AccessToken))
+        if (!_session.HasToken)
         {
             ErrorMessage = "Sign in required.";
             IsLoading = false;
@@ -88,20 +93,13 @@ public sealed partial class BrowsingDomainDetailViewModel : ObservableObject
         ErrorMessage = null;
         try
         {
-            var baseUrl = ResolveApiBase(string.IsNullOrWhiteSpace(state.ApiBaseUrl) ? _apiBaseUrl : state.ApiBaseUrl);
-            using var api = new TrackingApiClient(baseUrl);
-            var detail = await api.QueryBrowsingDomainDetailAsync(
-                    state.AccessToken, _staffUserId, _domain, take: 200, from: _fromUtc, to: _toUtc)
+            var detail = await _api.QueryBrowsingDomainDetailAsync(
+                    _staffUserId, _domain, take: 200, from: _fromUtc, to: _toUtc, ct)
                 .ConfigureAwait(false);
 
             await Dispatcher.UIThread.InvokeAsync(() =>
             {
-                Visits.Clear();
-                foreach (var v in detail.Visits)
-                {
-                    Visits.Add(new BrowsingVisitRowViewModel(v));
-                }
-
+                Build(detail);
                 Title = string.IsNullOrWhiteSpace(detail.Domain) ? _domain : detail.Domain;
                 Subtitle = $"{detail.VisitCount} visit{(detail.VisitCount == 1 ? "" : "s")}";
                 ErrorMessage = null;
@@ -110,14 +108,18 @@ public sealed partial class BrowsingDomainDetailViewModel : ObservableObject
                 OnPropertyChanged(nameof(ShowEmpty));
             });
         }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            // The window closed while loading.
+        }
         catch (Exception ex)
         {
+            _log.Warn($"Browsing detail for {_domain} could not be loaded", ex);
             await Dispatcher.UIThread.InvokeAsync(() =>
             {
-                Visits.Clear();
-                ErrorMessage = ex is HttpRequestException
-                    ? "Could not reach the server."
-                    : (string.IsNullOrWhiteSpace(ex.Message) ? "Failed to load visits." : ex.Message);
+                Rows.Clear();
+                _visitCount = 0;
+                ErrorMessage = ApiError.Describe(ex, "Failed to load visits.");
                 IsLoading = false;
                 OnPropertyChanged(nameof(HasItems));
                 OnPropertyChanged(nameof(ShowEmpty));
@@ -125,8 +127,17 @@ public sealed partial class BrowsingDomainDetailViewModel : ObservableObject
         }
     }
 
-    private static string ResolveApiBase(string? apiBaseUrl)
-        => string.IsNullOrWhiteSpace(apiBaseUrl)
-            ? Environment.GetEnvironmentVariable("TEAMSCOP_API_BASE") ?? "https://teamscop.com"
-            : apiBaseUrl.TrimEnd('/');
+    private void Build(BrowsingDomainDetail detail)
+    {
+        Rows.Clear();
+        var visits = detail.Visits
+            .Select(v => new BrowsingVisitRowViewModel(v, _clock))
+            .OrderByDescending(v => v.VisitedAtUtc);
+        _visitCount = 0;
+        foreach (var visit in visits)
+        {
+            Rows.Add(visit);
+            _visitCount++;
+        }
+    }
 }

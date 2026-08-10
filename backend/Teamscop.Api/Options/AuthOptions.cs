@@ -29,5 +29,28 @@ public sealed class StorageOptions
     public const string SectionName = "Storage";
 
     public string AvatarRoot { get; set; } = "data/avatars";
-    public string PublicAvatarBasePath { get; set; } = "/media/avatars";
+
+    /// <summary>
+    /// The path stored in <c>AvatarUrl</c> and handed to the desktop app. An authenticated API
+    /// route since B12 — anything outside <c>/api</c> is either unauthenticated or, behind the
+    /// deployed nginx, not proxied to this service at all.
+    /// </summary>
+    public string PublicAvatarBasePath { get; set; } = "/api/media/avatars";
+
+    public string ScreenshotRoot { get; set; } = "data/screenshots";
+}
+
+public sealed class RetentionOptions
+{
+    public const string SectionName = "Retention";
+
+    /// <summary>Days to keep agent_events and screenshot blobs (§13.2). 0 disables pruning.</summary>
+    public int AgentEventsDays { get; set; } = 30;
+}
+
+public sealed class DatabaseOptions
+{
+    public const string SectionName = "Database";
+
+    public bool MigrateOnStartup { get; set; } = true;
 }

@@ -33,9 +33,6 @@ public static class AuthorityPackageIds
         [TeamManagement] = "Team management"
     };
 
-    public static bool IsKnown(string packageId)
-        => All.Contains(packageId, StringComparer.OrdinalIgnoreCase);
-
     public static string Normalize(string packageId)
     {
         var hit = All.FirstOrDefault(p => p.Equals(packageId.Trim(), StringComparison.OrdinalIgnoreCase));

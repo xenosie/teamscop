@@ -22,7 +22,7 @@ public class PoliceAuthorityFlowTests : IClassFixture<WebApplicationFactory<Prog
     {
         var (adminToken, companyToken) = await SignupAdminAsync("Police Co");
         var (copId, copToken, _) = await SignupStaffAsync(companyToken, "Cop");
-        var (targetId, targetToken, _) = await SignupStaffAsync(companyToken, "Target");
+        var (targetId, targetToken, targetDevice) = await SignupStaffAsync(companyToken, "Target");
         var (otherId, _, _) = await SignupStaffAsync(companyToken, "OtherStaff");
 
         // Target emits timetrack + browser events
@@ -82,17 +82,14 @@ public class PoliceAuthorityFlowTests : IClassFixture<WebApplicationFactory<Prog
         });
         (await _client.SendAsync(expand)).EnsureSuccessStatusCode();
 
-        // Enroll TOTP as admin, generate as policeman with usb_approval
-        using var enroll = Authed(HttpMethod.Post, "/api/lifecycle/totp/enroll", adminToken);
-        enroll.Content = JsonContent.Create(new { staffUserId = targetId });
-        var enrollDoc = JsonDocument.Parse(await (await _client.SendAsync(enroll)).Content.ReadAsStringAsync());
-        var secret = enrollDoc.RootElement.GetProperty("secret").GetString()!;
-
+        // Now holding usb_approval, the policeman can issue a code. It is derived from the target's
+        // device key on company-local time (§6.1/§6.3) — no enrolment, and defaulting to the USB
+        // purpose. The company clock is UTC here, so company-local time equals UTC.
         using var codeOk = Authed(HttpMethod.Get, $"/api/lifecycle/totp/code/{targetId}", copToken);
         var codeResp = await _client.SendAsync(codeOk);
         Assert.True(codeResp.IsSuccessStatusCode, await codeResp.Content.ReadAsStringAsync());
         var code = JsonDocument.Parse(await codeResp.Content.ReadAsStringAsync()).RootElement.GetProperty("code").GetString()!;
-        Assert.Equal(TotpGenerator.ComputeCode(secret), code);
+        Assert.Equal(TotpGenerator.ComputeCode(TotpGenerator.DeriveMachineSecret(targetDevice, TotpGenerator.PurposeUsb)), code);
 
         // Team management works company-wide
         using var teamOk = Authed(HttpMethod.Post, "/api/teams", copToken);

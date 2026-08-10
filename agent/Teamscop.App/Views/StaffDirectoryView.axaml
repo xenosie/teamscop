@@ -1,0 +1,119 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:Teamscop.App.ViewModels"
+             xmlns:heroIcons="clr-namespace:HeroIconsAvalonia.Controls;assembly=HeroIconsAvalonia"
+             x:Class="Teamscop.App.Views.StaffDirectoryView"
+             x:Name="DirRoot"
+             x:DataType="vm:StaffDirectoryViewModel">
+
+  <StackPanel Margin="0,0,0,4">
+    <TextBlock Text="Loading…"
+               Classes="ts-muted"
+               FontSize="12"
+               Margin="44,4,16,8"
+               IsVisible="{Binding ShowLoading}" />
+    <TextBlock Text="{Binding EmptyMessage}"
+               Classes="ts-muted"
+               FontSize="12"
+               Margin="44,4,16,8"
+               IsVisible="{Binding ShowEmpty}" />
+
+    <!-- Defect 3: a request that failed must never read as "nobody works here". -->
+    <StackPanel Margin="44,4,16,8" Spacing="2" IsVisible="{Binding ShowError}">
+      <TextBlock Text="{Binding LoadError}"
+                 Foreground="#DC2626"
+                 FontSize="12"
+                 TextWrapping="Wrap" />
+      <Button Classes="ts-link"
+              FontSize="11"
+              Content="Retry"
+              HorizontalAlignment="Left"
+              Command="{Binding RetryCommand}" />
+    </StackPanel>
+
+    <TextBox Classes="ts-field"
+             Margin="36,2,12,6"
+             MinHeight="28"
+             FontSize="12"
+             Padding="8,3"
+             Watermark="Find a name…"
+             IsVisible="{Binding ShowFilter}"
+             Text="{Binding FilterText, Mode=TwoWay}" />
+
+    <!-- A ListBox purely for its VirtualizingStackPanel: rows realise as they scroll into view,
+         so only the visible members' avatars are ever requested (A14 / §15.1). -->
+    <ListBox Classes="ts-plain"
+             MaxHeight="280"
+             SelectionMode="Single"
+             ItemsSource="{Binding Items}"
+             IsVisible="{Binding ShowList}"
+             ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+      <ListBox.ItemTemplate>
+          <DataTemplate x:DataType="vm:StaffListItemViewModel">
+            <Button Classes="ts-staff-row"
+                    Classes.selected="{Binding IsSelected}"
+                    HorizontalAlignment="Stretch"
+                    Command="{Binding #DirRoot.((vm:StaffDirectoryViewModel)DataContext).SelectCommand}"
+                    CommandParameter="{Binding}"
+                    AttachedToVisualTree="OnRowAttached"
+                    DataContextChanged="OnRowDataContextChanged">
+              <Grid ColumnDefinitions="Auto,*" MinHeight="28">
+                <!-- Avatar carries the §5.1 presence badge at its corner: green/red/grey. -->
+                <Panel Width="28" Height="28" VerticalAlignment="Center">
+                  <Border Width="28" Height="28"
+                          Classes="ts-circle-avatar"
+                          ClipToBounds="True"
+                          Background="{StaticResource TsAccentSoftBrush}">
+                    <Panel>
+                      <heroIcons:HeroIcon Type="User" Kind="Outline" Width="14" Height="14"
+                                          Foreground="{StaticResource TsAccentBrush}"
+                                          HorizontalAlignment="Center"
+                                          VerticalAlignment="Center"
+                                          IsVisible="{Binding !HasAvatar}" />
+                      <Image Source="{Binding Avatar}"
+                             Stretch="UniformToFill"
+                             IsVisible="{Binding HasAvatar}" />
+                    </Panel>
+                  </Border>
+                  <!-- The row's ONE badge. Machine trouble outranks activity: black broken, gold
+                       uninstalled, grey unreachable; a healthy machine shows green working / red
+                       resting. The reason is in the tooltip. -->
+                  <Border Width="11" Height="11" CornerRadius="6"
+                          HorizontalAlignment="Right"
+                          VerticalAlignment="Bottom"
+                          Margin="0,0,-1,-1"
+                          Background="{Binding CombinedBadgeBrush}"
+                          BorderBrush="White"
+                          BorderThickness="1.5"
+                          IsVisible="{Binding HasBadge}"
+                          ToolTip.Tip="{Binding CombinedBadgeTooltip}" />
+                </Panel>
+                <TextBlock Grid.Column="1"
+                           Text="{Binding Name}"
+                           Margin="10,0,0,0"
+                           VerticalAlignment="Center"
+                           FontSize="13"
+                           FontWeight="Medium"
+                           TextTrimming="CharacterEllipsis" />
+              </Grid>
+            </Button>
+          </DataTemplate>
+      </ListBox.ItemTemplate>
+    </ListBox>
+
+    <!-- 20–50 staff, so the nav shows a page and says how much is behind it (§15.1) -->
+    <StackPanel Margin="36,4,12,4" Spacing="2" IsVisible="{Binding ShowPaging}">
+      <TextBlock Text="{Binding PageLabel}" Classes="ts-muted" FontSize="11" />
+      <StackPanel Orientation="Horizontal" Spacing="10" IsVisible="{Binding HasMore}">
+        <Button Classes="ts-link"
+                FontSize="11"
+                Content="Show 25 more"
+                Command="{Binding ShowMoreCommand}" />
+        <Button Classes="ts-link"
+                FontSize="11"
+                Content="Show all"
+                Command="{Binding ShowAllCommand}" />
+      </StackPanel>
+    </StackPanel>
+  </StackPanel>
+</UserControl>

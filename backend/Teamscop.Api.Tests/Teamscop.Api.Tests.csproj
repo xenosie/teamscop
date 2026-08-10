@@ -30,6 +30,14 @@
     <ProjectReference Include="..\..\agent\Teamscop.Engine.Sync\Teamscop.Engine.Sync.csproj" />
     <ProjectReference Include="..\..\agent\Teamscop.Engine.Tracking\Teamscop.Engine.Tracking.csproj" />
     <ProjectReference Include="..\..\agent\Teamscop.Engine.Usb\Teamscop.Engine.Usb.csproj" />
+
+    <!--
+      C2 — the service-side capture pipe (CapturePipeServer) lives here, and it is the process that
+      per-staff config has to reach (§6.2). Its Program uses top-level statements, so the generated
+      Program type is internal and cannot collide with Teamscop.Api's public partial Program used by
+      WebApplicationFactory<Program>.
+    -->
+    <ProjectReference Include="..\..\agent\Teamscop.StaffService\Teamscop.StaffService.csproj" />
   </ItemGroup>
 
 </Project>

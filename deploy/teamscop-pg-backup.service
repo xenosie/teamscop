@@ -1,0 +1,13 @@
+[Unit]
+Description=Teamscop PostgreSQL backup
+After=postgresql.service network.target
+Wants=postgresql.service
+
+[Service]
+Type=oneshot
+User=postgres
+Group=postgres
+ExecStart=/opt/teamscop/bin/pg-backup.sh
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7

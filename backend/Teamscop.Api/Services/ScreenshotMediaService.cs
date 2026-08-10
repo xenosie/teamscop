@@ -2,12 +2,17 @@ using System.Collections.Concurrent;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.Formats.Jpeg;
+using SixLabors.ImageSharp.Formats.Webp;
 using SixLabors.ImageSharp.Processing;
 using Teamscop.Api.Data;
+using Teamscop.Api.Services.Access;
+using Teamscop.Api.Services.Insights;
 using Teamscop.Engine.Sync;
 
 namespace Teamscop.Api.Services;
+
+/// <summary>Image bytes plus the MIME type to serve them under.</summary>
+public readonly record struct ScreenshotImage(byte[] Bytes, string ContentType);
 
 public sealed class ScreenshotDisplayMetaDto
 {
@@ -22,6 +27,8 @@ public sealed class ScreenshotMetaDto
     public Guid Id { get; set; }
     public Guid StaffUserId { get; set; }
     public DateTimeOffset OccurredAt { get; set; }
+
+    /// <summary>Company-local wall clock (§8.2), computed at projection time. Kind is Unspecified.</summary>
     public DateTime? BusinessOccurredAt { get; set; }
     public string? BusinessTimeZoneId { get; set; }
     public int DisplayCount { get; set; }
@@ -30,22 +37,29 @@ public sealed class ScreenshotMetaDto
 
 public interface IScreenshotMediaService
 {
+    /// <param name="before">
+    /// Cursor for backwards paging: return only captures strictly older than this. The gallery
+    /// passes the last tile's occurredAt, so pages cannot drift as new captures arrive.
+    /// </param>
     Task<IReadOnlyList<ScreenshotMetaDto>> ListAsync(
         Guid viewerId,
         Guid staffUserId,
         DateTimeOffset? from,
         DateTimeOffset? to,
+        DateTimeOffset? before,
         int take,
         CancellationToken ct);
 
-    Task<byte[]?> GetThumbJpegAsync(
+    /// <summary>A server-resized WebP thumbnail (§3.1) for the gallery grid, or null if not found.</summary>
+    Task<ScreenshotImage?> GetThumbAsync(
         Guid viewerId,
         Guid eventId,
         int displayIndex,
         int maxWidth,
         CancellationToken ct);
 
-    Task<byte[]?> GetFullJpegAsync(
+    /// <summary>The stored capture bytes verbatim — no transcode, no generational loss (§3.4).</summary>
+    Task<ScreenshotImage?> GetFullAsync(
         Guid viewerId,
         Guid eventId,
         int displayIndex,
@@ -54,48 +68,91 @@ public interface IScreenshotMediaService
 
 public sealed class ScreenshotMediaService(
     AppDbContext db,
-    IAuthorityService authorities) : IScreenshotMediaService
+    IStaffDataGuard guard,
+    IScreenshotBlobStorage blobs) : IScreenshotMediaService
 {
     private static readonly ConcurrentDictionary<string, byte[]> ThumbCache = new();
     private const int ThumbCacheMax = 256;
+
+    /// <summary>Well past any real display wall; a 8K x 8K capture is already 64 MP.</summary>
+    private const long MaxDecodePixels = 50_000_000;
+
+    private const int MaxDecodeDimension = 20_000;
+
+    private const string WebpMime = "image/webp";
+
+    /// <summary>
+    /// The MIME type for the stored bytes, sniffed from the magic number so the full image is served
+    /// verbatim under the right type even during the WebP rollout (a leftover JPEG still serves).
+    /// </summary>
+    private static string DetectMime(byte[] bytes)
+    {
+        if (bytes.Length >= 12
+            && bytes[0] == (byte)'R' && bytes[1] == (byte)'I' && bytes[2] == (byte)'F' && bytes[3] == (byte)'F'
+            && bytes[8] == (byte)'W' && bytes[9] == (byte)'E' && bytes[10] == (byte)'B' && bytes[11] == (byte)'P')
+        {
+            return WebpMime;
+        }
+
+        if (bytes.Length >= 3 && bytes[0] == 0xFF && bytes[1] == 0xD8 && bytes[2] == 0xFF)
+        {
+            return "image/jpeg";
+        }
+
+        if (bytes.Length >= 8
+            && bytes[0] == 0x89 && bytes[1] == 0x50 && bytes[2] == 0x4E && bytes[3] == 0x47)
+        {
+            return "image/png";
+        }
+
+        // Unknown — the store only ever holds agent-encoded WebP, so default to it.
+        return WebpMime;
+    }
 
     public async Task<IReadOnlyList<ScreenshotMetaDto>> ListAsync(
         Guid viewerId,
         Guid staffUserId,
         DateTimeOffset? from,
         DateTimeOffset? to,
+        DateTimeOffset? before,
         int take,
         CancellationToken ct)
     {
-        await EnsureCanViewAsync(viewerId, staffUserId, ct);
+        await guard.RequireViewableAsync(viewerId, staffUserId, AgentEventTypes.ScreenshotMeta, ct);
 
         take = Math.Clamp(take <= 0 ? 100 : take, 1, 200);
-        var q = db.AgentEvents.AsNoTracking()
-            .Where(e => e.UserId == staffUserId && e.EventType == AgentEventTypes.ScreenshotMeta);
-        if (from is not null)
+
+        // `before` narrows the exclusive upper bound rather than replacing it, so a cursor can
+        // never page outside the requested period.
+        var upper = to;
+        if (before is { } cursor)
         {
-            q = q.Where(e => e.OccurredAt >= from);
+            var cursorUtc = cursor.ToUniversalTime();
+            upper = upper is null || cursorUtc < upper ? cursorUtc : upper;
         }
 
-        if (to is not null)
-        {
-            q = q.Where(e => e.OccurredAt < to);
-        }
-
-        // Select only identity + small payload fields needed to parse display meta.
-        // Avoid shipping jpegBase64 to the client: strip after parse.
-        var rows = await q.OrderByDescending(e => e.OccurredAt)
-            .Take(take)
+        // PayloadJson on a screenshot row is metadata only — a few hundred bytes. Ingest moves the
+        // JPEGs to blob storage before the row is written (B4), so this select can never drag an
+        // image through PostgreSQL to answer "how many displays, how big".
+        var rows = await db.AgentEvents.AsNoTracking()
+            .ForStaff(staffUserId)
+            .OfType(AgentEventTypes.ScreenshotMeta)
+            .InPeriod(from, upper)
+            .Newest(take)
             .Select(e => new
             {
                 e.Id,
                 e.UserId,
                 e.OccurredAt,
-                e.BusinessOccurredAt,
-                e.BusinessTimeZoneId,
                 e.PayloadJson
             })
             .ToListAsync(ct);
+
+        var timeZoneId = await db.Users.AsNoTracking()
+            .Where(u => u.Id == staffUserId)
+            .Select(u => u.Company.BusinessTimeZoneId)
+            .FirstAsync(ct);
+        var zone = CompanyBusinessTime.Resolve(timeZoneId);
 
         var list = new List<ScreenshotMetaDto>(rows.Count);
         foreach (var row in rows)
@@ -106,8 +163,8 @@ public sealed class ScreenshotMediaService(
                 Id = row.Id,
                 StaffUserId = row.UserId,
                 OccurredAt = row.OccurredAt,
-                BusinessOccurredAt = row.BusinessOccurredAt,
-                BusinessTimeZoneId = row.BusinessTimeZoneId,
+                BusinessOccurredAt = CompanyBusinessTime.ToBusinessLocal(row.OccurredAt, zone),
+                BusinessTimeZoneId = timeZoneId,
                 DisplayCount = displays.Count,
                 Displays = displays
             });
@@ -116,7 +173,7 @@ public sealed class ScreenshotMediaService(
         return list;
     }
 
-    public async Task<byte[]?> GetThumbJpegAsync(
+    public async Task<ScreenshotImage?> GetThumbAsync(
         Guid viewerId,
         Guid eventId,
         int displayIndex,
@@ -125,21 +182,39 @@ public sealed class ScreenshotMediaService(
     {
         maxWidth = Math.Clamp(maxWidth <= 0 ? 320 : maxWidth, 80, 640);
         displayIndex = displayIndex <= 0 ? 1 : displayIndex;
+
+        var ownerId = await RequireOwnerAsync(viewerId, eventId, ct);
+        if (ownerId is null)
+        {
+            return null;
+        }
+
         var cacheKey = $"{eventId:D}:{displayIndex}:w{maxWidth}";
         if (ThumbCache.TryGetValue(cacheKey, out var cached))
         {
-            return cached;
+            return new ScreenshotImage(cached, WebpMime);
         }
 
-        var jpeg = await LoadDisplayJpegAsync(viewerId, eventId, displayIndex, ct);
-        if (jpeg is null || jpeg.Length == 0)
+        var stored = await blobs.ReadDisplayAsync(ownerId.Value, eventId, displayIndex, ct);
+        if (stored is null || stored.Length == 0)
         {
             return null;
         }
 
         try
         {
-            using var image = Image.Load(jpeg);
+            // B9 — read the header first and refuse before allocating. Checking megapixels after
+            // Image.Load is checking after the allocation the check exists to prevent. Every agent
+            // is a machine whose owner is a local admin, so a hostile image is a realistic input.
+            var header = Image.Identify(stored);
+            if (header.Width > MaxDecodeDimension
+                || header.Height > MaxDecodeDimension
+                || (long)header.Width * header.Height > MaxDecodePixels)
+            {
+                return null;
+            }
+
+            using var image = Image.Load(stored);
             if (image.Width > maxWidth)
             {
                 var ratio = maxWidth / (double)image.Width;
@@ -147,65 +222,61 @@ public sealed class ScreenshotMediaService(
                 image.Mutate(x => x.Resize(maxWidth, h));
             }
 
+            // Re-encode WebP (§3.1) — roughly half the bytes of JPEG at the same visual quality.
             using var ms = new MemoryStream();
-            await image.SaveAsJpegAsync(ms, new JpegEncoder { Quality = 55 }, ct).ConfigureAwait(false);
+            await image.SaveAsWebpAsync(ms, new WebpEncoder { Quality = 72 }, ct).ConfigureAwait(false);
             var bytes = ms.ToArray();
             RememberThumb(cacheKey, bytes);
-            return bytes;
+            return new ScreenshotImage(bytes, WebpMime);
         }
         catch
         {
-            // Corrupt or non-JPEG — fall back to original only if already small.
-            if (jpeg.Length <= 24 * 1024)
+            // Corrupt or undecodable — fall back to the stored bytes only if already small.
+            if (stored.Length <= 24 * 1024)
             {
-                RememberThumb(cacheKey, jpeg);
-                return jpeg;
+                return new ScreenshotImage(stored, DetectMime(stored));
             }
 
             return null;
         }
     }
 
-    public async Task<byte[]?> GetFullJpegAsync(
+    public async Task<ScreenshotImage?> GetFullAsync(
         Guid viewerId,
         Guid eventId,
         int displayIndex,
         CancellationToken ct)
     {
         displayIndex = displayIndex <= 0 ? 1 : displayIndex;
-        return await LoadDisplayJpegAsync(viewerId, eventId, displayIndex, ct);
-    }
-
-    private async Task<byte[]?> LoadDisplayJpegAsync(
-        Guid viewerId,
-        Guid eventId,
-        int displayIndex,
-        CancellationToken ct)
-    {
-        var row = await db.AgentEvents.AsNoTracking()
-            .Where(e => e.Id == eventId && e.EventType == AgentEventTypes.ScreenshotMeta)
-            .Select(e => new { e.UserId, e.PayloadJson })
-            .FirstOrDefaultAsync(ct);
-        if (row is null)
+        var ownerId = await RequireOwnerAsync(viewerId, eventId, ct);
+        if (ownerId is null)
         {
             return null;
         }
 
-        await EnsureCanViewAsync(viewerId, row.UserId, ct);
-        return TryExtractJpeg(row.PayloadJson, displayIndex);
+        var bytes = await blobs.ReadDisplayAsync(ownerId.Value, eventId, displayIndex, ct);
+        return bytes is null ? null : new ScreenshotImage(bytes, DetectMime(bytes));
     }
 
-    private async Task EnsureCanViewAsync(Guid viewerId, Guid staffUserId, CancellationToken ct)
+    /// <summary>
+    /// Who the capture belongs to, once the viewer has been cleared to see it. Only the owner is
+    /// read from the row — the bytes live on disk, never in the payload (B4) — so the gallery pays
+    /// one narrow indexed lookup per tile rather than dragging a payload back for each thumbnail.
+    /// </summary>
+    private async Task<Guid?> RequireOwnerAsync(Guid viewerId, Guid eventId, CancellationToken ct)
     {
-        if (!await authorities.CanViewStaffAsync(viewerId, staffUserId, ct))
+        var ownerId = await db.AgentEvents.AsNoTracking()
+            .OfType(AgentEventTypes.ScreenshotMeta)
+            .Where(e => e.Id == eventId)
+            .Select(e => (Guid?)e.UserId)
+            .FirstOrDefaultAsync(ct);
+        if (ownerId is null)
         {
-            throw new UnauthorizedAccessException("Not allowed to view this staff member's tracking data.");
+            return null;
         }
 
-        if (!await authorities.CanViewEventTypeAsync(viewerId, AgentEventTypes.ScreenshotMeta, ct))
-        {
-            throw new UnauthorizedAccessException("Missing authority package for screenshots.");
-        }
+        await guard.RequireViewableAsync(viewerId, ownerId.Value, AgentEventTypes.ScreenshotMeta, ct);
+        return ownerId;
     }
 
     private static void RememberThumb(string key, byte[] bytes)
@@ -225,169 +296,26 @@ public sealed class ScreenshotMediaService(
     private static List<ScreenshotDisplayMetaDto> TryParseDisplayMeta(string payloadJson)
     {
         var result = new List<ScreenshotDisplayMetaDto>();
-        try
+        using var innerDoc = AgentEventPayload.TryOpen(payloadJson, "displays");
+        if (innerDoc is null
+            || !innerDoc.RootElement.TryGetProperty("displays", out var displays)
+            || displays.ValueKind != JsonValueKind.Array)
         {
-            using var innerDoc = OpenInnerDocument(payloadJson);
-            if (innerDoc is null)
-            {
-                return result;
-            }
-
-            var inner = innerDoc.RootElement;
-            if (!inner.TryGetProperty("displays", out var displays)
-                || displays.ValueKind != JsonValueKind.Array)
-            {
-                return result;
-            }
-
-            foreach (var d in displays.EnumerateArray())
-            {
-                var index = ReadInt(d, "DisplayIndex", "displayIndex", "index") ?? 0;
-                var width = ReadInt(d, "Width", "width") ?? 0;
-                var height = ReadInt(d, "Height", "height") ?? 0;
-                var size = ReadInt(d, "size", "Size") ?? 0;
-                if (size <= 0
-                    && d.TryGetProperty("jpegBase64", out var b64)
-                    && b64.ValueKind == JsonValueKind.String)
-                {
-                    var s = b64.GetString();
-                    if (!string.IsNullOrEmpty(s))
-                    {
-                        // Approximate decoded size from base64 length.
-                        size = (int)(s.Length * 3L / 4);
-                    }
-                }
-
-                result.Add(new ScreenshotDisplayMetaDto
-                {
-                    Index = index <= 0 ? result.Count + 1 : index,
-                    Width = width,
-                    Height = height,
-                    Size = size
-                });
-            }
+            return result;
         }
-        catch (JsonException)
+
+        foreach (var d in displays.EnumerateArray())
         {
-            // ignore malformed
+            var index = AgentEventPayload.Int(d, "DisplayIndex", "displayIndex", "index") ?? 0;
+            result.Add(new ScreenshotDisplayMetaDto
+            {
+                Index = index <= 0 ? result.Count + 1 : index,
+                Width = AgentEventPayload.Int(d, "Width", "width") ?? 0,
+                Height = AgentEventPayload.Int(d, "Height", "height") ?? 0,
+                Size = AgentEventPayload.Int(d, "size", "Size") ?? 0
+            });
         }
 
         return result;
-    }
-
-    private static byte[]? TryExtractJpeg(string payloadJson, int displayIndex)
-    {
-        try
-        {
-            using var innerDoc = OpenInnerDocument(payloadJson);
-            if (innerDoc is null)
-            {
-                return null;
-            }
-
-            var inner = innerDoc.RootElement;
-            if (!inner.TryGetProperty("displays", out var displays)
-                || displays.ValueKind != JsonValueKind.Array)
-            {
-                return null;
-            }
-
-            JsonElement? match = null;
-            var i = 0;
-            foreach (var d in displays.EnumerateArray())
-            {
-                i++;
-                var idx = ReadInt(d, "DisplayIndex", "displayIndex", "index") ?? i;
-                if (idx == displayIndex)
-                {
-                    match = d;
-                    break;
-                }
-            }
-
-            match ??= displays.GetArrayLength() > 0 ? displays[0] : null;
-            if (match is null)
-            {
-                return null;
-            }
-
-            if (!match.Value.TryGetProperty("jpegBase64", out var b64El)
-                || b64El.ValueKind != JsonValueKind.String)
-            {
-                return null;
-            }
-
-            var b64 = b64El.GetString();
-            if (string.IsNullOrWhiteSpace(b64))
-            {
-                return null;
-            }
-
-            return Convert.FromBase64String(b64);
-        }
-        catch (Exception ex) when (ex is JsonException or FormatException or ArgumentException)
-        {
-            return null;
-        }
-    }
-
-    /// <summary>Returns a document for the inner screenshot payload (caller must dispose).</summary>
-    private static JsonDocument? OpenInnerDocument(string payloadJson)
-    {
-        if (string.IsNullOrWhiteSpace(payloadJson))
-        {
-            return null;
-        }
-
-        using var outer = JsonDocument.Parse(payloadJson);
-        var root = outer.RootElement;
-        if (root.TryGetProperty("payloadBase64", out var pb)
-            && pb.ValueKind == JsonValueKind.String)
-        {
-            var b64 = pb.GetString();
-            if (string.IsNullOrWhiteSpace(b64))
-            {
-                return null;
-            }
-
-            try
-            {
-                return JsonDocument.Parse(Convert.FromBase64String(b64));
-            }
-            catch (Exception ex) when (ex is FormatException or JsonException)
-            {
-                return null;
-            }
-        }
-
-        // Already-unwrapped / test payloads — re-parse owned copy.
-        if (root.TryGetProperty("displays", out _))
-        {
-            return JsonDocument.Parse(payloadJson);
-        }
-
-        return null;
-    }
-
-    private static int? ReadInt(JsonElement el, params string[] names)
-    {
-        foreach (var name in names)
-        {
-            if (el.TryGetProperty(name, out var p))
-            {
-                if (p.ValueKind == JsonValueKind.Number && p.TryGetInt32(out var n))
-                {
-                    return n;
-                }
-
-                if (p.ValueKind == JsonValueKind.String
-                    && int.TryParse(p.GetString(), out var parsed))
-                {
-                    return parsed;
-                }
-            }
-        }
-
-        return null;
     }
 }

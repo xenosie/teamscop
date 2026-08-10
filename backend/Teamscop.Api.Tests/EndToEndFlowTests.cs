@@ -54,15 +54,11 @@ public class EndToEndFlowTests : IClassFixture<WebApplicationFactory<Program>>
         var staffId = staffDoc.RootElement.GetProperty("user").GetProperty("id").GetGuid();
         Assert.Equal("staff", staffDoc.RootElement.GetProperty("user").GetProperty("role").GetString());
 
-        // 3) Admin enrolls per-staff TOTP (USB + uninstall)
-        using var enrollReq = Authed(HttpMethod.Post, "/api/lifecycle/totp/enroll", adminToken);
-        enrollReq.Content = JsonContent.Create(new { staffUserId = staffId });
-        var enrollResp = await _client.SendAsync(enrollReq);
-        var enrollBody = await enrollResp.Content.ReadAsStringAsync();
-        Assert.True(enrollResp.IsSuccessStatusCode, enrollBody);
-        using var enrollDoc = JsonDocument.Parse(enrollBody);
-        var secret = enrollDoc.RootElement.GetProperty("secret").GetString()!;
-        Assert.False(string.IsNullOrWhiteSpace(secret));
+        // 3) Approval codes are derived from the device key on demand (§6.1) — no enrolment step.
+        //    The admin can already issue a code for this staff machine.
+        using var codeReq = Authed(HttpMethod.Get, $"/api/lifecycle/totp/code/{staffId}?purpose=uninstall", adminToken);
+        var codeResp = await _client.SendAsync(codeReq);
+        Assert.Equal(HttpStatusCode.OK, codeResp.StatusCode);
 
         // 4) Admin configures screenshot/time/browser for staff
         var cfgBody = new StaffTrackingConfig
@@ -90,7 +86,7 @@ public class EndToEndFlowTests : IClassFixture<WebApplicationFactory<Program>>
         var meCfg = await meCfgResp.Content.ReadFromJsonAsync<StaffTrackingConfig>(Json);
         Assert.NotNull(meCfg);
         Assert.Equal(ScreenshotQuality.Low, meCfg!.ScreenshotQuality);
-        Assert.Equal(30 * 1024, meCfg.TargetBytes);
+        Assert.Equal(12 * 1024, meCfg.TargetBytes); // §3.2 per-display budget (all tiers < 60 KB)
 
         // 6) Local vault + outbox + sync flush into ingest (agent-side path)
         var root = Path.Combine(Path.GetTempPath(), "e2e-" + Guid.NewGuid().ToString("N"));
@@ -100,12 +96,11 @@ public class EndToEndFlowTests : IClassFixture<WebApplicationFactory<Program>>
             var master = SecureVault.DeriveMasterKey(staffDevice, "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=");
             var vault = new SecureVault(root, master);
             var outbox = new FileOutboxQueue(root);
-            var chrome = new ChromeHistoryWatcher(root);
-            var tracking = new TrackingCoordinator(vault, outbox, chrome, meCfg);
+            var tracking = new TrackingCoordinator(vault, outbox, meCfg);
             await tracking.TickAsync();
 
-            // Force a timetrack-like vault record and outbox item with sequence envelope
-            var append = vault.Append(new VaultRecord
+            // Force a timetrack-like vault record and outbox item.
+            vault.Append(new VaultRecord
             {
                 Kind = "timetrack",
                 OccurredAt = DateTimeOffset.UtcNow,
@@ -113,15 +108,10 @@ public class EndToEndFlowTests : IClassFixture<WebApplicationFactory<Program>>
             });
             var item = OutboxItem.Create(AgentEventTypes.TimeTrack, new
             {
-                vaultSequence = append.Sequence,
-                chainHash = append.ChainHashHex,
                 configVersion = meCfg.ConfigVersion,
                 payloadBase64 = Convert.ToBase64String("""{"state":"Working"}"""u8.ToArray())
             });
             await outbox.EnqueueAsync(item);
-
-            var integrity = vault.Verify(fullScan: true);
-            Assert.True(integrity.Ok, integrity.Error);
 
             var pending = await outbox.PeekPendingAsync(50);
             Assert.NotEmpty(pending);
@@ -163,8 +153,10 @@ public class EndToEndFlowTests : IClassFixture<WebApplicationFactory<Program>>
         var meResp = await _client.SendAsync(meReq);
         Assert.Equal(HttpStatusCode.OK, meResp.StatusCode);
 
-        // 8) Uninstall gate with TOTP
-        var code = TotpGenerator.ComputeCode(secret);
+        // 8) Uninstall gate with a code derived from the device key (§6.1/§6.4). The company clock
+        //    defaults to UTC, so company-local time equals UTC here.
+        var code = TotpGenerator.ComputeCode(
+            TotpGenerator.DeriveMachineSecret(staffDevice, TotpGenerator.PurposeUninstall));
         var verifyResp = await _client.PostAsJsonAsync("/api/lifecycle/uninstall/verify", new
         {
             deviceKey = staffDevice,

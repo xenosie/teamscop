@@ -10,12 +10,25 @@ public static class AgentEventTypes
     public const string ScreenshotMeta = "screenshot_meta";
     public const string BrowserHistory = "browser_history";
     public const string UsbEvent = "usb_event";
-    public const string VaultAlert = "vault_alert";
     // Phase 9 — App history (lifecycle)
     public const string Registration = "registration";
     public const string PowerOff = "power_off";
     public const string Uninstall = "uninstall";
-    public const string AppBroken = "app_broken";
+
+    /// <summary>
+    /// One row per completed install/upgrade, emitted by the service on its first loop after the
+    /// installer stamps the machine. OccurredAt carries the installer's own timestamp, so the app
+    /// history shows exactly WHEN the product landed, not when the service first got around to
+    /// reporting it.
+    /// </summary>
+    public const string Install = "install";
+
+    /// <summary>
+    /// §14 — a change in a machine's four-state status, written by the SERVER, never by an agent.
+    /// It records what the server concluded from the evidence, so it must not be accepted from
+    /// ingest: an agent that could post its own status could declare itself healthy.
+    /// </summary>
+    public const string AppStatus = "app_status";
 }
 
 public sealed class OutboxItem

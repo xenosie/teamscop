@@ -1,0 +1,63 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:Teamscop.App.ViewModels"
+             xmlns:heroIcons="clr-namespace:HeroIconsAvalonia.Controls;assembly=HeroIconsAvalonia"
+             x:Class="Teamscop.App.Views.StaffSectionNavView"
+             x:Name="SectionRoot"
+             x:DataType="vm:StaffDetailViewModel"
+             IsVisible="{Binding ShowSectionNav}">
+
+  <Border Width="200"
+          Background="{StaticResource TsSurfaceBrush}"
+          BorderBrush="{StaticResource TsAccentBrush}"
+          BorderThickness="0,0,1,0">
+    <DockPanel>
+      <StackPanel DockPanel.Dock="Top"
+                  Spacing="10"
+                  Margin="0,20,0,16"
+                  HorizontalAlignment="Center">
+        <Border Width="56" Height="56"
+                Classes="ts-circle-avatar"
+                ClipToBounds="True"
+                Background="{StaticResource TsAccentSoftBrush}">
+          <Panel>
+            <heroIcons:HeroIcon Type="User" Kind="Outline" Width="22" Height="22"
+                                Foreground="{StaticResource TsAccentBrush}"
+                                HorizontalAlignment="Center"
+                                VerticalAlignment="Center"
+                                IsVisible="{Binding !StaffHasAvatar}" />
+            <Image Source="{Binding StaffAvatar}"
+                   Stretch="UniformToFill"
+                   IsVisible="{Binding StaffHasAvatar}" />
+          </Panel>
+        </Border>
+        <TextBlock Text="{Binding StaffName}"
+                   FontSize="14"
+                   FontWeight="SemiBold"
+                   Foreground="{StaticResource TsTextBrush}"
+                   HorizontalAlignment="Center"
+                   TextAlignment="Center"
+                   TextWrapping="Wrap"
+                   MaxWidth="168" />
+      </StackPanel>
+
+      <!-- One declarative section list drives the nav, the default and the clamp. -->
+      <ItemsControl ItemsSource="{Binding VisibleSections}">
+        <ItemsControl.ItemTemplate>
+          <DataTemplate x:DataType="vm:StaffSectionViewModel">
+            <Button Classes="ts-staff-detail"
+                    Classes.selected="{Binding IsActive}"
+                    Command="{Binding #SectionRoot.((vm:StaffDetailViewModel)DataContext).SelectSectionCommand}"
+                    CommandParameter="{Binding}">
+              <StackPanel Orientation="Horizontal" Spacing="10">
+                <heroIcons:HeroIcon Type="{Binding Icon}" Kind="Outline" Width="18" Height="18"
+                                    Foreground="{Binding IconBrush}" />
+                <TextBlock Text="{Binding Label}" VerticalAlignment="Center" FontWeight="SemiBold" />
+              </StackPanel>
+            </Button>
+          </DataTemplate>
+        </ItemsControl.ItemTemplate>
+      </ItemsControl>
+    </DockPanel>
+  </Border>
+</UserControl>

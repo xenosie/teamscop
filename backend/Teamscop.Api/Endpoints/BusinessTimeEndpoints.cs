@@ -10,7 +10,9 @@ public static class BusinessTimeEndpoints
     {
         var group = app.MapGroup("/api/business-time").WithTags("BusinessTime");
         group.MapGet("/me", GetMineAsync).RequireAuthorization();
-        group.MapPost("/declare", DeclareAsync).RequireAuthorization();
+        group.MapGet("/zones", ListZonesAsync).RequireAuthorization();
+        // §8.4: picking a timezone replaces the whole clock, so this is a PUT of the one setting.
+        group.MapPut("", SetTimeZoneAsync).RequireAuthorization();
         group.MapGet("/now", GetNowAsync).RequireAuthorization();
         return group;
     }
@@ -20,47 +22,41 @@ public static class BusinessTimeEndpoints
         IBusinessTimeService businessTime,
         CancellationToken ct)
     {
-        var userId = GetUserId(principal);
+        var userId = principal.UserId();
         if (userId is null)
         {
             return Results.Unauthorized();
         }
 
-        try
-        {
-            return Results.Ok(await businessTime.GetForUserAsync(userId.Value, ct));
-        }
-        catch (UnauthorizedAccessException)
+        return Results.Ok(await businessTime.GetForUserAsync(userId.Value, ct));
+    }
+
+    private static IResult ListZonesAsync(
+        ClaimsPrincipal principal,
+        IBusinessTimeService businessTime)
+    {
+        var userId = principal.UserId();
+        if (userId is null)
         {
             return Results.Unauthorized();
         }
+
+        return Results.Ok(businessTime.ListTimeZones());
     }
 
-    private static async Task<IResult> DeclareAsync(
-        [FromBody] DeclareBusinessTimeRequest body,
+    private static async Task<IResult> SetTimeZoneAsync(
+        [FromBody] SetCompanyTimeZoneRequest body,
         ClaimsPrincipal principal,
         IBusinessTimeService businessTime,
         CancellationToken ct)
     {
-        var userId = GetUserId(principal);
+        var userId = principal.UserId();
         if (userId is null)
         {
             return Results.Unauthorized();
         }
 
-        try
-        {
-            var cfg = await businessTime.DeclareSyncAsync(userId.Value, body, ct);
-            return Results.Ok(cfg);
-        }
-        catch (UnauthorizedAccessException ex)
-        {
-            return Results.Json(new { error = ex.Message }, statusCode: StatusCodes.Status403Forbidden);
-        }
-        catch (InvalidOperationException ex)
-        {
-            return Results.BadRequest(new { error = ex.Message });
-        }
+        return Results.Ok(await businessTime.SetTimeZoneAsync(userId.Value, body, ct));
     }
 
     private static async Task<IResult> GetNowAsync(
@@ -68,39 +64,21 @@ public static class BusinessTimeEndpoints
         IBusinessTimeService businessTime,
         CancellationToken ct)
     {
-        var userId = GetUserId(principal);
+        var userId = principal.UserId();
         if (userId is null)
         {
             return Results.Unauthorized();
         }
 
-        try
+        var cfg = await businessTime.GetForUserAsync(userId.Value, ct);
+        var zone = CompanyBusinessTime.Resolve(cfg.TimeZoneId);
+        var utc = DateTimeOffset.UtcNow;
+        return Results.Ok(new
         {
-            var cfg = await businessTime.GetForUserAsync(userId.Value, ct);
-            var clock = new Teamscop.Engine.Tracking.BusinessClock();
-            clock.Apply(cfg);
-            var now = clock.Now();
-            return Results.Ok(new
-            {
-                cfg.CompanyId,
-                cfg.TimeZoneId,
-                cfg.ClockVersion,
-                cfg.IsSynchronized,
-                utc = now.Utc,
-                businessLocal = now.BusinessLocalIso,
-                synchronized = now.Synchronized
-            });
-        }
-        catch (UnauthorizedAccessException)
-        {
-            return Results.Unauthorized();
-        }
-    }
-
-    private static Guid? GetUserId(ClaimsPrincipal principal)
-    {
-        var sub = principal.FindFirstValue(ClaimTypes.NameIdentifier)
-            ?? principal.FindFirstValue("sub");
-        return Guid.TryParse(sub, out var id) ? id : null;
+            cfg.CompanyId,
+            cfg.TimeZoneId,
+            utc,
+            businessLocal = CompanyBusinessTime.ToBusinessLocalIso(utc, zone)
+        });
     }
 }
